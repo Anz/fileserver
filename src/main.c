@@ -7,22 +7,28 @@ int main(int argc, char* argv[]) {
    vfsn_t *root;
    char buf[255];
 
-   root = vfs_create(NULL, "hello", VFS_OPEN|VFS_DIR);
+   root = vfs_create(NULL, "hello", VFS_DIR);
    for (char c = 'a'; c < 'f'; c++) {
       char name[2];
       memset(name, 0, sizeof(name));
       name[0] = c;
-      vfs_create(root, name, VFS_FILE);
+      vfsn_t *node = vfs_create(root, name, VFS_FILE);
+      char *text = "hello world!";
+      vfs_write(node, text, strlen(text)+1);
+      vfs_close(node);
    }
-   vfs_create(root, "dir", VFS_DIR);
+   vfs_close(vfs_create(root, "dir", VFS_DIR));
 
    vfs_name(root, buf, 255);
    printf("root: %s\n", buf);
    vfsn_t *child = vfs_child(root);
    vfsn_t *last = child;
    while (child) {
+      char buffer[1024];
+      memset(buffer, 0, sizeof(buffer));
+      vfs_read(child, buffer, sizeof(buffer));
       vfs_name(child, buf, 255);
-      printf("child: %s %i\n", buf, vfs_file(child));
+      printf("child: %s %i\n%s\n\n", buf, vfs_is_file(child), buffer);
       child = vfs_next(child);
       vfs_close(last);
       last = child;

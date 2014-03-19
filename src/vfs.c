@@ -2,11 +2,13 @@
 #include <stdlib.h>
 
 #define VFS_SAFE_WRITE(node, ...) \
-   if (node) { \
-      pthread_rwlock_wrlock(&node->lock); \
-      { __VA_ARGS__; } \
-      pthread_rwlock_unlock(&node->lock); \
-   }
+   if (node) pthread_rwlock_wrlock(&node->lock); \
+   { __VA_ARGS__; } \
+   if (node) pthread_rwlock_unlock(&node->lock); 
+
+#define VFS_SAFE_WRITE2(node1, node2, ...) VFS_SAFE_WRITE(node1, VFS_SAFE_WRITE(node2, __VA_ARGS__))
+#define VFS_SAFE_WRITE3(node1, node2, node3, ...) VFS_SAFE_WRITE(node1, VFS_SAFE_WRITE2(node2, node3, __VA_ARGS__))
+#define VFS_SAFE_WRITE4(node1, node2, node3, node4, ...) VFS_SAFE_WRITE(node1, VFS_SAFE_WRITE3(node2, node3, node4, __VA_ARGS__))
 
 #define VFS_SAFE_READ(node, ...) \
    if (node) { \
@@ -16,12 +18,16 @@
    }
 
 
-static vfsn_t* vfs_open(vfsn_t *node)
+static int vfs_flag_checked(vfsn_t *node, char flag)
 {
-   if (!node)
-      return NULL;
-   pthread_rwlock_rdlock(&node->openlk);
-   return node;
+   int retval;
+   VFS_SAFE_READ(node, retval = (node->flags & flag) ? 1 : 0);
+   return retval;
+}
+
+static void vfs_flag_set(vfsn_t *node, char flag)
+{
+   VFS_SAFE_WRITE(node, node->flags |= flag);
 }
 
 static void vfs_attach(vfsn_t *parent, vfsn_t *child)
@@ -37,55 +43,39 @@ static void vfs_attach(vfsn_t *parent, vfsn_t *child)
 
 static void vfs_detach(vfsn_t* node)
 {
-   vfsn_t *parent = vfs_parent(node);
-   vfsn_t *prev = vfs_prev(node);
-   vfsn_t *next = vfs_next(node);
+   // open handles
+   vfsn_t *prev = vfs_prev(node), *next = vfs_next(node), *parent = prev ? NULL : vfs_parent(node);
 
-   if (prev && next) {
-      VFS_SAFE_WRITE(prev,
-         VFS_SAFE_WRITE(node, 
-            VFS_SAFE_WRITE(next,
-               prev->sil_next = next;
-               next->sil_prev = prev;
-               node->parent = node->sil_prev = node->sil_next = NULL;
-            )
-         )
-      )
-   } else if (prev) {
-      VFS_SAFE_WRITE(prev,
-         VFS_SAFE_WRITE(node, 
-            prev->sil_next = NULL;
-            node->parent = node->sil_prev = node->sil_next = NULL;
-         )
-      )
-   } else if (next && parent) {
-      VFS_SAFE_WRITE(parent,
-         VFS_SAFE_WRITE(node, 
-            VFS_SAFE_WRITE(next,
-               parent->child = next;
-               next->sil_prev = NULL;
-               node->parent = node->sil_prev = node->sil_next = NULL;
-             )
-         )
-      )
-   } else if (next) {
-      VFS_SAFE_WRITE(node, 
-         VFS_SAFE_WRITE(next,
-            next->sil_prev = NULL;
-            node->parent = node->sil_prev = node->sil_next = NULL;
-         )
-      )
-   } else if (parent) {
-      VFS_SAFE_WRITE(parent, 
-         parent->child = NULL;
-         node->parent = node->sil_prev = node->sil_next = NULL;
-      );
-   }
+   // lock in order parent, prev, node, next to prevent dead locks!
+   VFS_SAFE_WRITE4(parent, prev, node, next,
+      // link prev or parent to next
+      if (prev) {
+         prev->sil_next = next;
+      } else if (parent) {
+         parent->child = next;
+      }
+      
+      // link next to prev
+      if (next) {
+         next->sil_prev = prev;
+      }
+
+      // unset node references
+      node->parent = node->sil_prev = node->sil_next = NULL;
+   );
 
    // close handles
    vfs_close(parent);
    vfs_close(prev);
    vfs_close(next);
+}
+
+vfsn_t* vfs_open(vfsn_t *node)
+{
+   if (!node)
+      return NULL;
+   pthread_rwlock_rdlock(&node->openlk);
+   return node;
 }
 
 vfsn_t* vfs_create(vfsn_t *parent, char* name, char flags)
@@ -96,10 +86,8 @@ vfsn_t* vfs_create(vfsn_t *parent, char* name, char flags)
       pthread_rwlock_init(&node->openlk, NULL);
       pthread_rwlock_init(&node->lock, NULL);
       node->name = strdup(name);
-      node->flags |= flags;
-      
-      if (flags & VFS_OPEN)
-         vfs_open(node);
+      vfs_flag_set(node, flags); 
+      vfs_open(node);
       vfs_attach(parent, node);
    }
    return node;
@@ -108,7 +96,7 @@ vfsn_t* vfs_create(vfsn_t *parent, char* name, char flags)
 void vfs_delete(vfsn_t *node)
 {
    vfs_detach(node);
-   VFS_SAFE_WRITE(node, node->flags |= VFS_DEL);
+   vfs_flag_set(node, VFS_DEL);
    VFS_SAFE_READ(node,
       vfsn_t *it = vfs_child(node);
       vfsn_t *prev = it;
@@ -122,13 +110,42 @@ void vfs_delete(vfsn_t *node)
    )
 }
 
+size_t vfs_read(vfsn_t *node, void *data, size_t size) {
+   size_t read = 0;
+   VFS_SAFE_READ(node,
+      if (node->flags & VFS_FILE) {
+         read = (size < node->data_size) ? size : node->data_size;
+         memcpy(data, node->data, read);
+      }
+   );
+   return read;
+}
+
+int vfs_write(vfsn_t *node, void *data, size_t size) {
+   int retval = 1;
+   VFS_SAFE_WRITE(node,
+      if (node->flags & VFS_FILE) {
+         free(node->data);
+         node->data = malloc(size);
+         if (node->data) {
+            memcpy(node->data, data, size);
+            node->data_size = size;
+            retval = 0;
+         } else {
+            retval = 2;
+         }
+         
+      }
+   );
+   return retval;
+}
+
 void vfs_close(vfsn_t *node)
 {
    if (!node)
       return;
 
-   int deleted;
-   VFS_SAFE_READ(node, deleted = node->flags & VFS_DEL);
+   int deleted = vfs_flag_checked(node, VFS_DEL);
    pthread_rwlock_unlock(&node->openlk);
 
    if (deleted && pthread_rwlock_trywrlock(&node->openlk) == 0) {
@@ -145,16 +162,18 @@ void vfs_name(vfsn_t *node, char* str, size_t len)
    VFS_SAFE_READ(node, strncpy(str, node->name, len));
 }
 
-int vfs_file(vfsn_t* node)
+int vfs_is_file(vfsn_t* node)
 {
-   int retval;
-   VFS_SAFE_READ(node, retval = node->flags & VFS_FILE);
-   return retval;
+   return vfs_flag_checked(node, VFS_FILE);
 }
 
-int vfs_dir(vfsn_t* node)
+int vfs_is_dir(vfsn_t* node)
 {
-   return !vfs_file(node);
+   return !vfs_is_file(node);
+}
+
+int vfs_is_deleted(vfsn_t *node) {
+   return vfs_flag_checked(node, VFS_DEL);
 }
 
 vfsn_t* vfs_parent(vfsn_t *node) 
