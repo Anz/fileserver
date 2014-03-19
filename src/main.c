@@ -8,16 +8,29 @@ int main(int argc, char* argv[]) {
    char buf[255];
 
    root = vfs_create(NULL, "hello", VFS_DIR);
+   if (!root) {
+      printf("root already exits\n");
+      return 1;
+   }
    for (char c = 'a'; c < 'f'; c++) {
       char name[2];
       memset(name, 0, sizeof(name));
       name[0] = c;
       vfsn_t *node = vfs_create(root, name, VFS_FILE);
+      if (!node) {
+         printf("node with name %s already exists\n", name);
+         continue;
+      }
       char *text = "hello world!";
       vfs_write(node, text, strlen(text)+1);
       vfs_close(node);
    }
    vfs_close(vfs_create(root, "dir", VFS_DIR));
+   if (vfs_create(root, "dir", VFS_DIR)) {
+      printf("error node could be created\n");
+   } else {
+      printf("node exits\n");
+   }
 
    vfs_name(root, buf, 255);
    printf("root: %s\n", buf);

@@ -33,15 +33,43 @@ static void vfs_flag_set(vfsn_t *node, char flag)
    VFS_SAFE_WRITE(node, node->flags |= flag);
 }
 
-static void vfs_attach(vfsn_t *parent, vfsn_t *child)
+static int vfs_attach(vfsn_t *parent, vfsn_t *child)
 {
-   if (!parent || !child)
-      return;
+   if (!parent)
+      return 0;
+   if (!child)
+      return 1;
 
+   int retval = 0;
    VFS_SAFE_WRITE(parent,
-      child->sil_next = parent->child;
-      parent->child = child;
+      if (!parent->child) {
+         child->sil_next = parent->child;
+         parent->child = child;
+      } else {
+         vfsn_t *it = vfs_open(parent->child);
+         vfsn_t *prev = NULL;
+         while (it) {
+            if (prev) {
+               pthread_rwlock_unlock(&prev->lock);
+               vfs_close(prev);
+            }
+            prev = it;
+            pthread_rwlock_wrlock(&it->lock);
+            if (strcmp(it->name, child->name) == 0) {
+               retval = 2;
+            }
+            it = vfs_open(it->sil_next);
+         }
+
+         if (retval == 0) {
+            prev->sil_next = child;
+            child->sil_prev = prev;
+         }
+         pthread_rwlock_unlock(&prev->lock);
+         vfs_close(prev);
+      }
    )
+   return retval;
 }
 
 static void vfs_detach(vfsn_t* node)
@@ -52,11 +80,10 @@ static void vfs_detach(vfsn_t* node)
    // lock in order parent, prev, node, next to prevent dead locks!
    VFS_SAFE4(VFS_WRITE, parent, prev, node, next,
       // link prev or parent to next
-      if (prev) {
+      if (prev)
          prev->sil_next = next;
-      } else if (parent) {
+      else if (parent)
          parent->child = next;
-      }
       
       // link next to prev
       if (next) {
@@ -94,7 +121,10 @@ vfsn_t* vfs_create(vfsn_t *parent, char* name, char flags)
       node->name = strdup(name);
       vfs_flag_set(node, flags); 
       vfs_open(node);
-      vfs_attach(parent, node);
+      if (vfs_attach(parent, node)) {
+         vfs_delete(node);
+         return NULL;
+      }
    }
    return node;
 }
