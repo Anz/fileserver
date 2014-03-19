@@ -1,10 +1,26 @@
 #include <stdlib.h>
 #include <stdio.h>
+#include <signal.h>
 
 #include "vfs.h"
 #include "vtp.h"
 
+
+static vtps_t socket;
+
+void signal_handler(int signal)
+{
+   printf("shutdown server\n");
+   vtp_stop(&socket);
+}
+
 int main(int argc, char* argv[]) {
+   struct sigaction sighandler;
+   sighandler.sa_handler = signal_handler;
+   sigemptyset(&sighandler.sa_mask);
+   sighandler.sa_flags= 0;
+   sigaction(SIGINT, &sighandler, NULL);
+
    vfsn_t *root;
    char buf[255];
 
@@ -52,7 +68,6 @@ int main(int argc, char* argv[]) {
    vfs_close(root);
 
    // start socket
-   vtps_t socket;
    int result = vtp_start(&socket, 8000);
    printf("socket returned %i\n",  result);
 
