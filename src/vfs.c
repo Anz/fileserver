@@ -1,23 +1,26 @@
 #include "vfs.h"
 #include <stdlib.h>
 
-#define VFS_SAFE_WRITE(node, ...) \
-   if (node) pthread_rwlock_wrlock(&node->lock); \
+///////////////////////////////////////////////////////////////////////////////
+// DEFINES / MACROS
+///////////////////////////////////////////////////////////////////////////////
+#define VFS_READ  pthread_rwlock_rdlock
+#define VFS_WRITE pthread_rwlock_wrlock
+
+#define VFS_SAFE(lock_funtion, node, ...) \
+   if (node) lock_funtion(&node->lock); \
    { __VA_ARGS__; } \
-   if (node) pthread_rwlock_unlock(&node->lock); 
+   if (node) pthread_rwlock_unlock(&node->lock);
 
-#define VFS_SAFE_WRITE2(node1, node2, ...) VFS_SAFE_WRITE(node1, VFS_SAFE_WRITE(node2, __VA_ARGS__))
-#define VFS_SAFE_WRITE3(node1, node2, node3, ...) VFS_SAFE_WRITE(node1, VFS_SAFE_WRITE2(node2, node3, __VA_ARGS__))
-#define VFS_SAFE_WRITE4(node1, node2, node3, node4, ...) VFS_SAFE_WRITE(node1, VFS_SAFE_WRITE3(node2, node3, node4, __VA_ARGS__))
+#define VFS_SAFE_READ(node, ...) VFS_SAFE(VFS_READ, node, __VA_ARGS__)
+#define VFS_SAFE_WRITE(node, ...) VFS_SAFE(VFS_WRITE, node, __VA_ARGS__)
+#define VFS_SAFE2(lock, node1, node2, ...) VFS_SAFE(lock, node1, VFS_SAFE(lock, node2, __VA_ARGS__))
+#define VFS_SAFE3(lock, node1, node2, node3, ...) VFS_SAFE(lock, node1, VFS_SAFE2(lock, node2, node3, __VA_ARGS__))
+#define VFS_SAFE4(lock, node1, node2, node3, node4, ...) VFS_SAFE(lock, node1, VFS_SAFE3(lock, node2, node3, node4, __VA_ARGS__))
 
-#define VFS_SAFE_READ(node, ...) \
-   if (node) { \
-      pthread_rwlock_rdlock(&node->lock); \
-      { __VA_ARGS__; } \
-      pthread_rwlock_unlock(&node->lock); \
-   }
-
-
+///////////////////////////////////////////////////////////////////////////////
+// LOCAL FUNCTIONS
+///////////////////////////////////////////////////////////////////////////////
 static int vfs_flag_checked(vfsn_t *node, char flag)
 {
    int retval;
@@ -47,7 +50,7 @@ static void vfs_detach(vfsn_t* node)
    vfsn_t *prev = vfs_prev(node), *next = vfs_next(node), *parent = prev ? NULL : vfs_parent(node);
 
    // lock in order parent, prev, node, next to prevent dead locks!
-   VFS_SAFE_WRITE4(parent, prev, node, next,
+   VFS_SAFE4(VFS_WRITE, parent, prev, node, next,
       // link prev or parent to next
       if (prev) {
          prev->sil_next = next;
@@ -70,6 +73,9 @@ static void vfs_detach(vfsn_t* node)
    vfs_close(next);
 }
 
+///////////////////////////////////////////////////////////////////////////////
+// GLOBAL FUNCTIONS
+///////////////////////////////////////////////////////////////////////////////
 vfsn_t* vfs_open(vfsn_t *node)
 {
    if (!node)
