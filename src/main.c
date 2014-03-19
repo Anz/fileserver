@@ -2,6 +2,7 @@
 #include <stdio.h>
 
 #include "vfs.h"
+#include "vtp.h"
 
 int main(int argc, char* argv[]) {
    vfsn_t *root;
@@ -49,6 +50,11 @@ int main(int argc, char* argv[]) {
 
    vfs_delete(root);
    vfs_close(root);
+
+   // start socket
+   vtps_t socket;
+   int result = vtp_start(&socket, 8000);
+   printf("socket returned %i\n",  result);
 
    return 0;
 }
