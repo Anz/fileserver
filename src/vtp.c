@@ -11,14 +11,6 @@
 #define NOSUCHFILE "NOSUCHFILE\n"
 #define MSG_NOSUCHCMD "NOSUCHCMD\n"
 
-static pthread_mutex_t runlock = PTHREAD_MUTEX_INITIALIZER;
-static int running = 1;
-
-struct vtpw {
-   int clientfd;
-   vfsn_t *root;
-};
-
 struct vtp_cmd {
    char* name;
    void (*func)(int fd);
@@ -48,10 +40,9 @@ static struct vtp_cmd cmds[] = {
 
 static void* vtp_worker(void* data)
 {
-   struct vtpw* vtpw = (struct vtpw*)data;
-   vfsn_t *root = vtpw->root;
-   int sockfd = vtpw->clientfd;
-   free(data);
+   struct vtp_thread* thread = (struct vtp_thread*)data;
+   vfsn_t *root = thread->root;
+   int sockfd = thread->sockfd;
 
    char buf[512];
    memset(buf, 0, 512);
@@ -64,15 +55,13 @@ static void* vtp_worker(void* data)
       int len;
       while ((len = read(sockfd, buf,512)) <= 0) {
          // check condition
-         pthread_mutex_lock(&runlock);
-         if (!running) {
-            pthread_mutex_unlock(&runlock);
-            write(sockfd, "bye\n", 4);
-            syncfs(sockfd);
+         pthread_mutex_lock(&thread->socket->lock);
+         if (!thread->socket->running) {
+            pthread_mutex_unlock(&thread->socket->lock);
             close(sockfd);
             return NULL;
          }
-         pthread_mutex_unlock(&runlock);
+         pthread_mutex_unlock(&thread->socket->lock);
       }
       buf[len-2] = '\0';
       struct vtp_cmd *cmd;
@@ -92,11 +81,17 @@ static void* vtp_worker(void* data)
 
 int vtp_start(vtps_t *vtps, int port)
 {
+   // init structure
+   memset(vtps, 0, sizeof(*vtps));
+   pthread_mutex_init(&vtps->lock, NULL);
+   vtps->running = 1;
+
    // setup socket
    vtps->sockfd = socket(AF_INET, SOCK_STREAM, 0);
    if (vtps->sockfd < 0) {
       return 1;
    }
+   setsockopt(vtps->sockfd, SOL_SOCKET, SO_RCVTIMEO, (char*) &timeout, sizeof(struct timeval));
    
    // setup socket address
    struct sockaddr_in serv_addr;
@@ -119,32 +114,60 @@ int vtp_start(vtps_t *vtps, int port)
    struct sockaddr_in client_addr;
    socklen_t len = sizeof(client_addr);
 
-   while (1) {
-      struct vtpw* data = malloc(sizeof(struct vtpw));
-      memset(data, 0, sizeof(struct vtpw));
-      data->root = vtps->root;
-      data->clientfd = accept(vtps->sockfd, (struct sockaddr*)&client_addr, &len);
+   int running = vtps->running;
 
-      // set timeout
-      setsockopt(data->clientfd, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout,sizeof(struct timeval));
-
-      if (data->clientfd < 0) {
-         free(data);
-         return 4;
+   while (running) {
+      // wait for clients
+      int clientfd = accept(vtps->sockfd, (struct sockaddr*)&client_addr, &len);
+      if (clientfd < 0) {
+         continue;
       }
 
-      // create thread
-      pthread_t thread;
-      pthread_create(&thread, NULL, vtp_worker, data);  
+      // set timeout time
+      setsockopt(clientfd, SOL_SOCKET, SO_RCVTIMEO, (char*) &timeout, sizeof(struct timeval));
+
+      // alloc client structure
+      struct vtp_thread *thread = malloc(sizeof(struct vtp_thread));
+      if (!thread) {
+         close(clientfd);
+         continue;
+      }
+
+      // set client data
+      memset(thread, 0, sizeof(*thread));
+      thread->socket = vtps;
+      thread->sockfd = clientfd;
+      thread->root = vfs_open(vtps->root);
+      thread->cwd = vfs_open(vtps->root);
+      pthread_mutex_lock(&vtps->lock);
+      thread->next = vtps->thread;
+      vtps->thread = thread;
+      pthread_mutex_unlock(&vtps->lock);
+      pthread_create(&thread->thread, NULL, vtp_worker, thread);
+
+      // update running var
+      pthread_mutex_lock(&vtps->lock);
+      running = vtps->running;
+      pthread_mutex_unlock(&vtps->lock);
    }
 
-   // close socket
+   // cleanup
    close(vtps->sockfd);
+   /*struct vtp_thread *prev = NULL, *it = vtps->thread;
+   while (it) {
+      pthread_join(it->thread, NULL);
+      free(prev);
+      prev = it;
+      it = it->next;
+   }*/
+
+   pthread_mutex_destroy(&vtps->lock);
+   return 0;
 }
 
 void vtp_stop(vtps_t *socket)
 {
-   pthread_mutex_lock(&runlock);
-   running = 0;
-   pthread_mutex_unlock(&runlock);
+   pthread_mutex_lock(&socket->lock);
+   socket->running = 0;
+   pthread_mutex_unlock(&socket->lock);
 }
