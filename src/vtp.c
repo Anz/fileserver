@@ -11,16 +11,15 @@
 #define NOSUCHFILE "NOSUCHFILE\n"
 #define MSG_NOSUCHCMD "NOSUCHCMD\n"
 
+struct vtp_worker {
+   int fd;
+   vtps_t *socket;
+};
+
 struct vtp_cmd {
    char* name;
    void (*func)(int fd);
 };
-
-static struct timeval timeout = {
-   .tv_sec = 3,
-   .tv_usec = 0,
-};
-
 
 static void vtp_list(int fd)
 {
@@ -38,11 +37,97 @@ static struct vtp_cmd cmds[] = {
    { }
 };
 
+static void vtp_release(vtps_t *socket)
+{
+   pthread_rwlock_wrlock(&socket->openlk);
+   pthread_mutex_destroy(&socket->runlock);
+   pthread_rwlock_destroy(&socket->openlk);
+   vfs_delete(socket->root);
+   vfs_close(socket->root);
+   free(socket);
+}
+
+static vtps_t* vtp_init(int port)
+{
+   vtps_t* vtps = malloc(sizeof(vtps_t));
+   if (!vtps)
+      return NULL;
+   memset(vtps, 0, sizeof(*vtps));
+
+   // setup virtual file system
+   vtps->root = vfs_create(NULL, "hello", VFS_DIR);
+   if (!vtps->root) {
+      vtp_release(vtps);
+      return NULL;
+   }
+ 
+   // init socket lock
+   if (pthread_rwlock_init(&vtps->openlk, NULL)) {
+      vtp_release(vtps);
+      return NULL;
+   }
+
+   // init socket lock
+   if (pthread_mutex_init(&vtps->runlock, NULL)) {
+      vtp_release(vtps);
+      return NULL;
+   }
+
+   // setup socket
+   vtps->sockfd = socket(AF_INET, SOCK_STREAM, 0);
+   if (vtps->sockfd < 0) {
+      vtp_release(vtps);
+      return NULL;
+   }
+
+   // setup socket address
+   struct sockaddr_in serv_addr = {
+      .sin_family = AF_INET,
+      .sin_addr.s_addr = INADDR_ANY,
+      .sin_port = htons(port)
+   };
+
+   // bind socket to address
+   if (bind(vtps->sockfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) < 0) {
+      vtp_release(vtps);
+      return NULL;
+   }
+
+   // start listening
+   if (listen(vtps->sockfd, 5)) {
+      vtp_release(vtps);
+      return NULL;
+   }
+
+   // set running
+   vtps->running = 1;
+
+   return vtps;
+}
+
+static int vtp_is_running(vtps_t *socket)
+{
+   int running;
+   pthread_mutex_lock(&socket->runlock);
+   running = socket->running;
+   pthread_mutex_unlock(&socket->runlock);
+   return running;
+}
+
 static void* vtp_worker(void* data)
 {
-   struct vtp_thread* thread = (struct vtp_thread*)data;
-   vfsn_t *root = thread->root;
-   int sockfd = thread->sockfd;
+   struct vtp_worker *worker = (struct vtp_worker*)data;
+   int sockfd = worker->fd;
+   vtps_t *socket = worker->socket;
+   worker = NULL;
+   free(data);
+   
+   pthread_rwlock_rdlock(&socket->openlk);
+   vfsn_t *root = vfs_open(socket->root);
+
+   // set timeout time
+   struct timeval timeout = { .tv_sec = 3, .tv_usec = 0 };
+   setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (char*) &timeout, sizeof(struct timeval));
 
    char buf[512];
    memset(buf, 0, 512);
@@ -54,14 +139,10 @@ static void* vtp_worker(void* data)
       write(sockfd, LINE_START, strlen(LINE_START));
       int len;
       while ((len = read(sockfd, buf,512)) <= 0) {
-         // check condition
-         pthread_mutex_lock(&thread->socket->lock);
-         if (!thread->socket->running) {
-            pthread_mutex_unlock(&thread->socket->lock);
+         if (!vtp_is_running(socket)) {
             close(sockfd);
             return NULL;
          }
-         pthread_mutex_unlock(&thread->socket->lock);
       }
       buf[len-2] = '\0';
       struct vtp_cmd *cmd;
@@ -76,98 +157,64 @@ static void* vtp_worker(void* data)
       }
    }
 
+   vfs_close(root);
+   pthread_rwlock_unlock(&socket->openlk);
    return NULL;
 }
 
-int vtp_start(vtps_t *vtps, int port)
+int vtp_start(vtp_socket_t* sock, int port)
 {
-   // init structure
-   memset(vtps, 0, sizeof(*vtps));
-   pthread_mutex_init(&vtps->lock, NULL);
-   vtps->running = 1;
-
-   // setup socket
-   vtps->sockfd = socket(AF_INET, SOCK_STREAM, 0);
-   if (vtps->sockfd < 0) {
+   vtps_t* vtps = vtp_init(port);
+   if (!vtps) 
       return 1;
-   }
-   setsockopt(vtps->sockfd, SOL_SOCKET, SO_RCVTIMEO, (char*) &timeout, sizeof(struct timeval));
-   
-   // setup socket address
-   struct sockaddr_in serv_addr;
-   memset(&serv_addr, 0, sizeof(serv_addr));
-   serv_addr.sin_family = AF_INET;
-   serv_addr.sin_addr.s_addr = INADDR_ANY;
-   serv_addr.sin_port = htons(port);
-
-   // bind socket to address
-   if (bind(vtps->sockfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) < 0) {
-      return 2;
-   }
-
-   // start listening
-   if (listen(vtps->sockfd, 5)) {
-      return 3;
-   }
+   *sock = vtps;
 
    // wait for clients
    struct sockaddr_in client_addr;
    socklen_t len = sizeof(client_addr);
 
-   int running = vtps->running;
+   fd_set set;
 
-   while (running) {
+   while (vtp_is_running(vtps)) {
+      FD_ZERO(&set);
+      FD_SET(vtps->sockfd, &set);
+      struct timeval timeout = { .tv_sec = 3, .tv_usec = 0 };
+      if (select(vtps->sockfd+1, &set, (fd_set*)0, (fd_set*)0, &timeout) <= 0) {
+         continue;
+      }
+
       // wait for clients
       int clientfd = accept(vtps->sockfd, (struct sockaddr*)&client_addr, &len);
       if (clientfd < 0) {
          continue;
       }
 
-      // set timeout time
-      setsockopt(clientfd, SOL_SOCKET, SO_RCVTIMEO, (char*) &timeout, sizeof(struct timeval));
-
-      // alloc client structure
-      struct vtp_thread *thread = malloc(sizeof(struct vtp_thread));
-      if (!thread) {
+      struct vtp_worker *worker = malloc(sizeof(struct vtp_worker));
+      if (!worker) {
          close(clientfd);
          continue;
       }
 
       // set client data
-      memset(thread, 0, sizeof(*thread));
-      thread->socket = vtps;
-      thread->sockfd = clientfd;
-      thread->root = vfs_open(vtps->root);
-      thread->cwd = vfs_open(vtps->root);
-      pthread_mutex_lock(&vtps->lock);
-      thread->next = vtps->thread;
-      vtps->thread = thread;
-      pthread_mutex_unlock(&vtps->lock);
-      pthread_create(&thread->thread, NULL, vtp_worker, thread);
-
-      // update running var
-      pthread_mutex_lock(&vtps->lock);
-      running = vtps->running;
-      pthread_mutex_unlock(&vtps->lock);
+      worker->fd = clientfd;
+      worker->socket = vtps;
+      pthread_t thread;
+      pthread_create(&thread, NULL, vtp_worker, worker);
    }
 
-   // cleanup
+   // release socket
    close(vtps->sockfd);
-   /*struct vtp_thread *prev = NULL, *it = vtps->thread;
-   while (it) {
-      pthread_join(it->thread, NULL);
-      free(prev);
-      prev = it;
-      it = it->next;
-   }*/
-
-   pthread_mutex_destroy(&vtps->lock);
+   vtp_release(vtps);
    return 0;
 }
 
-void vtp_stop(vtps_t *socket)
+void vtp_stop(vtp_socket_t* sock)
 {
-   pthread_mutex_lock(&socket->lock);
+   if (!sock || !*sock)
+      return;
+
+   vtps_t *socket = *sock;
+   pthread_mutex_lock(&socket->runlock);
    socket->running = 0;
-   pthread_mutex_unlock(&socket->lock);
+   pthread_mutex_unlock(&socket->runlock);
 }

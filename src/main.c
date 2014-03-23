@@ -6,7 +6,7 @@
 #include "vtp.h"
 
 
-static vtps_t socket;
+static vtp_socket_t socket = NULL;
 
 void signal_handler(int signal)
 {
@@ -21,7 +21,7 @@ int main(int argc, char* argv[]) {
    sighandler.sa_flags= 0;
    sigaction(SIGINT, &sighandler, NULL);
 
-   vfsn_t *root;
+   /*vfsn_t *root;
    char buf[255];
 
    root = vfs_create(NULL, "hello", VFS_DIR);
@@ -65,7 +65,7 @@ int main(int argc, char* argv[]) {
    }
 
    vfs_delete(root);
-   vfs_close(root);
+   vfs_close(root);*/
 
    // start socket
    int result = vtp_start(&socket, 8000);

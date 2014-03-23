@@ -4,26 +4,17 @@
 #include "vfs.h"
 #include <pthread.h>
 
-struct vtps;
-
-struct vtp_thread {
-   struct vtps *socket;
-   int sockfd;
-   vfsn_t *root;
-   vfsn_t *cwd;
-   pthread_t thread;
-   struct vtp_thread *next;
-};
-
 typedef struct vtps {
-   pthread_mutex_t lock;
+   pthread_rwlock_t openlk;
+   pthread_mutex_t runlock;
    int running;
    int sockfd;
    vfsn_t* root;
-   struct vtp_thread *thread;
 } vtps_t;
 
-int vtp_start(vtps_t *vtps, int port);
-void vtp_stop(vtps_t *vtps);
+typedef struct vtps* vtp_socket_t;
+
+int vtp_start(vtp_socket_t *sock, int port);
+void vtp_stop(vtp_socket_t *sock);
 
 #endif
