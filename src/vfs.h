@@ -26,6 +26,7 @@ void vfs_name(vfsn_t *node, char* str, size_t len);
 int vfs_is_file(vfsn_t *node);
 int vfs_is_dir(vfsn_t *node);
 int vfs_is_deleted(vfsn_t *node);
+int vfs_size(vfsn_t *node);
 vfsn_t* vfs_parent(vfsn_t *node);
 vfsn_t* vfs_child(vfsn_t *node);
 vfsn_t* vfs_prev(vfsn_t *node);

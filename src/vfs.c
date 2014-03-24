@@ -212,6 +212,13 @@ int vfs_is_deleted(vfsn_t *node) {
    return vfs_flag_checked(node, VFS_DEL);
 }
 
+int vfs_size(vfsn_t *node)
+{
+   int size;
+   VFS_SAFE_READ(node, size = node->data_size);
+   return size;
+}
+
 vfsn_t* vfs_parent(vfsn_t *node) 
 {
    vfsn_t* parent = NULL;
