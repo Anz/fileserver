@@ -8,8 +8,11 @@
 
 #define WELCOME_TEXT "hello client and welcome to multithreading fileserver\n"
 #define LINE_START "> "
+#define MSG_FILECREATED "FILECREATED\n"
 #define NOSUCHFILE "NOSUCHFILE\n"
 #define MSG_NOSUCHCMD "NOSUCHCMD\n"
+#define ERR_INVALIDCMD "INVALIDCMD\n"
+#define ERR_FILEEXISTS "FILEEXISTS\n"
 
 struct vtp_worker {
    int fd;
@@ -18,28 +21,116 @@ struct vtp_worker {
 
 struct vtp_cmd {
    char* name;
-   void (*func)(int fd);
+   void (*func)(int fd, vtps_t *socket, vfsn_t *cwd, int argc, char* argv[]);
 };
 
-static void vtp_list(int fd)
+static int vtp_is_running(vtps_t *socket)
 {
-   write(fd, "list\n", 5);
+   int running;
+   pthread_mutex_lock(&socket->runlock);
+   running = socket->running;
+   pthread_mutex_unlock(&socket->runlock);
+   return running;
 }
 
-static void vtp_cmd_exit(int fd) {
+static int vtp_write(vtps_t *socket, int fd, char* msg)
+{
+   // write with timeout
+   while (write(fd, msg, strlen(msg)) <= 0) {
+      // check if server stopped
+      if (!vtp_is_running(socket))
+         return 1;
+   }
+   return 0;
+}
+
+static int vtp_read(vtps_t *socket, int fd, char* msg, size_t size)
+{
+   // write with timeout
+   while (read(fd, msg, size) <= 0) {
+      // check if server stopped
+      if (!vtp_is_running(socket))
+         return 1;
+   }
+   return 0;
+}
+
+static void vtp_cmd_create(int fd, vtps_t *socket, vfsn_t *cwd, int argc, char* argv[])
+{
+   if (argc < 3) {
+      write(fd, ERR_INVALIDCMD, strlen(ERR_INVALIDCMD));
+      return;
+   }
+
+   int len = atoi(argv[2]);
+   char content[len];
+   if (vtp_read(socket, fd, content, len)) {
+      return; // server stopped
+   }
+
+   vfsn_t *node = vfs_create(cwd, argv[1], VFS_FILE);
+   if (node) {
+      vfs_write(node, content, len);
+      write(fd, MSG_FILECREATED, strlen(MSG_FILECREATED));
+   } else {
+      write(fd, ERR_FILEEXISTS, strlen(ERR_FILEEXISTS));
+   }
+
+   vfs_close(node);
+}
+
+static void vtp_cmd_list(int fd, vtps_t *socket, vfsn_t *cwd, int argc, char* argv[])
+{
+   vfsn_t *it = vfs_child(cwd);
+   while (it) {
+      char name[256];
+      vfs_name(it, name, 256);
+      write(fd, name, strlen(name));
+      write(fd, "\n", 1);
+      vfsn_t* tmp = it;
+      it = vfs_next(it);
+      vfs_close(tmp);
+   }
+}
+
+static void vtp_cmd_read(int fd, vtps_t *socket, vfsn_t *cwd, int argc, char* argv[])
+{
+   if (argc < 2) {
+      vtp_write(socket, fd, ERR_INVALIDCMD);
+      return;
+   }
+
+   vfsn_t *it = vfs_child(cwd);
+   while (it) {
+      char name[256];
+      vfs_name(it, name, 256);
+      if (strcmp(name, argv[1]) == 0) { 
+         char content[512];
+         vfs_read(it, content, 512);
+         write(fd, content, 512);
+         write(fd, "\n", 1);
+      }
+      vfsn_t* tmp = it;
+      it = vfs_next(it);
+      vfs_close(tmp);
+   }
+}
+
+static void vtp_cmd_exit(int fd, vtps_t *socket, vfsn_t *cwd, int argc, char* argv[]) {
    close(fd);
 }
 
 static struct vtp_cmd cmds[] = {
-   { "list", vtp_list },
-   { "create", vtp_list },
+   { "list", vtp_cmd_list },
+   { "create", vtp_cmd_create },
    { "exit", vtp_cmd_exit },
+   { "read", vtp_cmd_read },
    { }
 };
 
 static void vtp_release(vtps_t *socket)
 {
-   pthread_rwlock_wrlock(&socket->openlk);
+   //pthread_rwlock_wrlock(&socket->openlk);
    pthread_mutex_destroy(&socket->runlock);
    pthread_rwlock_destroy(&socket->openlk);
    vfs_delete(socket->root);
@@ -105,15 +196,6 @@ static vtps_t* vtp_init(int port)
    return vtps;
 }
 
-static int vtp_is_running(vtps_t *socket)
-{
-   int running;
-   pthread_mutex_lock(&socket->runlock);
-   running = socket->running;
-   pthread_mutex_unlock(&socket->runlock);
-   return running;
-}
-
 static void* vtp_worker(void* data)
 {
    struct vtp_worker *worker = (struct vtp_worker*)data;
@@ -124,6 +206,7 @@ static void* vtp_worker(void* data)
    
    pthread_rwlock_rdlock(&socket->openlk);
    vfsn_t *root = vfs_open(socket->root);
+   vfsn_t *cwd = vfs_open(socket->root);
 
    // set timeout time
    struct timeval timeout = { .tv_sec = 3, .tv_usec = 0 };
@@ -145,10 +228,18 @@ static void* vtp_worker(void* data)
          }
       }
       buf[len-2] = '\0';
+      int argi = 0;
+      char* argv[4];
+      argv[0] = strtok(buf, " ");
+      while (argi < 4 && argv[argi]) {
+         argi++;
+         argv[argi] = strtok(NULL, " ");
+      }
+
       struct vtp_cmd *cmd;
       for (cmd = &cmds[0]; cmd->name; cmd++) {
-         if (strncmp(cmd->name, buf, len) == 0) {
-            cmd->func(sockfd);
+         if (strncmp(cmd->name, argv[0], len) == 0) {
+            cmd->func(sockfd, socket, cwd, argi, argv);
             break;
          }
       }
@@ -157,6 +248,7 @@ static void* vtp_worker(void* data)
       }
    }
 
+   vfs_close(cwd);
    vfs_close(root);
    pthread_rwlock_unlock(&socket->openlk);
    return NULL;
