@@ -7,6 +7,7 @@
 #include <fcntl.h>
 
 #define WELCOME_TEXT "hello client and welcome to multithreading fileserver\n"
+#define MSG_GOODBYE "Good bye!\n"
 #define LINE_START "> "
 #define MSG_FILECREATED "FILECREATED\n"
 #define NOSUCHFILE "NOSUCHFILE\n"
@@ -16,7 +17,7 @@
 
 struct vtp_cmd {
    char* name;
-   void (*func)(int fd, vfsn_t *cwd, int argc, char* argv[]);
+   void (*func)(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* argv[]);
 };
 
 static vfsn_t* vtp_path(vfsn_t *cwd, char* path)
@@ -35,8 +36,22 @@ static vfsn_t* vtp_path(vfsn_t *cwd, char* path)
    return NULL;
 }
 
+static int vtp_read(int fd, vfsn_t *root, char *buf, size_t size)
+{
+   int current = 0;
+   while (current < size) {
+      if (vfs_is_deleted(root))
+         return 1;
 
-static void vtp_cmd_create(int fd, vfsn_t *cwd, int argc, char* argv[])
+      int len = read(fd, buf + current, size - current);
+      if (len > 0)
+         current += len;
+   }
+   return 0;
+}
+
+
+static void vtp_cmd_create(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* argv[])
 {
    if (argc < 3) {
       write(fd, ERR_INVALIDCMD, strlen(ERR_INVALIDCMD));
@@ -45,7 +60,9 @@ static void vtp_cmd_create(int fd, vfsn_t *cwd, int argc, char* argv[])
 
    int len = atoi(argv[2]);
    char content[len];
-   while (read(fd, content, len) <= 0);
+   if (vtp_read(fd, root, content, len)) {
+      return;
+   }
 
    vfsn_t *node = vfs_create(cwd, argv[1], VFS_FILE);
    if (node) {
@@ -58,7 +75,7 @@ static void vtp_cmd_create(int fd, vfsn_t *cwd, int argc, char* argv[])
    vfs_close(node);
 }
 
-static void vtp_cmd_list(int fd, vfsn_t *cwd, int argc, char* argv[])
+static void vtp_cmd_list(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* argv[])
 {
    vfsn_t *it = vfs_child(cwd);
    while (it) {
@@ -72,7 +89,7 @@ static void vtp_cmd_list(int fd, vfsn_t *cwd, int argc, char* argv[])
    }
 }
 
-static void vtp_cmd_read(int fd, vfsn_t *cwd, int argc, char* argv[])
+static void vtp_cmd_read(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* argv[])
 {
    if (argc < 2) {
       write(fd, ERR_INVALIDCMD, strlen(ERR_INVALIDCMD));
@@ -93,7 +110,8 @@ static void vtp_cmd_read(int fd, vfsn_t *cwd, int argc, char* argv[])
    vfs_close(file);
 }
 
-static void vtp_cmd_exit(int fd, vfsn_t *cwd, int argc, char* argv[]) {
+static void vtp_cmd_exit(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* argv[])
+{
    close(fd);
 }
 
@@ -142,13 +160,14 @@ void vtp_handle(int fd, vfsn_t *root)
 
       struct vtp_cmd *cmd = vtp_get_cmd(argv[0]);
       if (cmd) {
-         cmd->func(sockfd, cwd, argi, argv);
+         cmd->func(sockfd, root, cwd, argi, argv);
       } else {
          write(sockfd, MSG_NOSUCHCMD, strlen(MSG_NOSUCHCMD));
       }
       write(sockfd, LINE_START, strlen(LINE_START));
    }
 
+   write(sockfd, MSG_GOODBYE, strlen(MSG_GOODBYE));
    vfs_close(cwd);
    vfs_close(root);
 }

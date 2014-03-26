@@ -8,7 +8,7 @@
 
 typedef vfsn_t* vtp_socket_t;
 
-int vtp_start(vtp_socket_t *sock, int port);
+int vtp_start(vtp_socket_t *sock, int port, int max_clients);
 void vtp_stop(vtp_socket_t *sock);
 
 #endif

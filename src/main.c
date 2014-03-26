@@ -13,6 +13,15 @@ void signal_handler(int signal)
 }
 
 int main(int argc, char* argv[]) {
+   int port = 8000, maxclients = 50;
+   
+   // parse args
+   if (argc > 1)
+      port = atoi(argv[1]);
+
+   if (argc > 2)
+      maxclients = atoi(argv[2]);
+
    // set signal handler
    struct sigaction sighandler;
    sighandler.sa_handler = signal_handler;
@@ -21,7 +30,7 @@ int main(int argc, char* argv[]) {
    sigaction(SIGINT, &sighandler, NULL);
 
    // start socket
-   int result = vtp_start(&socket, 8000);
+   int result = vtp_start(&socket, port, maxclients);
    printf("socket returned %i\n",  result);
 
    return 0;

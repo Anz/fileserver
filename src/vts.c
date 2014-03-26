@@ -23,6 +23,7 @@ static void* vtp_worker(void* data)
    // set timeout time
    struct timeval timeout = { .tv_sec = 3, .tv_usec = 0 };
    setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (char*) &timeout, sizeof(struct timeval));
+   setsockopt(sockfd, SOL_SOCKET, SO_SNDTIMEO, (char*) &timeout, sizeof(struct timeval));
 
    vtp_handle(sockfd, root);
    return NULL;
@@ -56,8 +57,29 @@ static int vtp_socket(int port)
    return sockfd;
 }
 
-int vtp_start(vtp_socket_t* sock, int port)
+static int vtp_next_client(int fd)
 {
+   // wait for client with timeout
+   fd_set set;
+   FD_ZERO(&set);
+   FD_SET(fd, &set);
+   struct timeval timeout = { .tv_sec = 3, .tv_usec = 0 };
+   if (select(fd+1, &set, (fd_set*)0, (fd_set*)0, &timeout) <= 0) {
+      return 0;
+   }
+
+   // accept client
+   struct sockaddr_in client_addr;
+   socklen_t len = sizeof(client_addr);
+   return accept(fd, (struct sockaddr*)&client_addr, &len);
+}
+
+int vtp_start(vtp_socket_t* sock, int port, int max_clients)
+{
+   int thread_num = 0;
+   pthread_t threads[max_clients];
+   memset(threads, 0, sizeof(threads));
+
    int sockfd = vtp_socket(port);
    if (sockfd < 0)
       return 1;
@@ -69,23 +91,10 @@ int vtp_start(vtp_socket_t* sock, int port)
    }
    *sock = root;
 
-   // wait for clients
-   struct sockaddr_in client_addr;
-   socklen_t len = sizeof(client_addr);
-
-   fd_set set;
-
    while (!vfs_is_deleted(root)) {
-      FD_ZERO(&set);
-      FD_SET(sockfd, &set);
-      struct timeval timeout = { .tv_sec = 3, .tv_usec = 0 };
-      if (select(sockfd+1, &set, (fd_set*)0, (fd_set*)0, &timeout) <= 0) {
-         continue;
-      }
-
       // wait for clients
-      int clientfd = accept(sockfd, (struct sockaddr*)&client_addr, &len);
-      if (clientfd < 0) {
+      int clientfd = vtp_next_client(sockfd);
+      if (clientfd <= 0) {
          continue;
       }
 
@@ -98,8 +107,12 @@ int vtp_start(vtp_socket_t* sock, int port)
       // set client data
       worker->fd = clientfd;
       worker->root = vfs_open(root);
-      pthread_t thread;
-      pthread_create(&thread, NULL, vtp_worker, worker);
+      pthread_create(&threads[thread_num], NULL, vtp_worker, worker);
+      thread_num++;
+   }
+
+   for (int i = 0; i < thread_num; i++) {
+      pthread_join(threads[i], NULL);
    }
 
    // release socket
