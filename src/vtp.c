@@ -180,18 +180,17 @@ static struct vtp_cmd* vtp_get_cmd(char *name)
 void vtp_handle(int fd, vfsn_t *root)
 {
    vfsn_t *cwd = vfs_open(root);
-   int sockfd = fd;
 
    char buf[512];
    memset(buf, 0, 512);
 
    // send welcome
-   write(sockfd, MSG_WELCOME, strlen(MSG_WELCOME));
-   write(sockfd, MSG_LINE_START, strlen(MSG_LINE_START));
+   write(fd, MSG_WELCOME, strlen(MSG_WELCOME));
+   write(fd, MSG_LINE_START, strlen(MSG_LINE_START));
 
-   while (!vfs_is_deleted(root) && fcntl(sockfd, F_GETFL) != -1) {
+   while (!vfs_is_deleted(root) && fcntl(fd, F_GETFL) != -1) {
       int len;
-      if ((len = read(sockfd, buf,512)) <= 0) {
+      if ((len = read(fd, buf,512)) <= 0) {
          continue;
       }
       buf[len-2] = '\0';
@@ -205,20 +204,20 @@ void vtp_handle(int fd, vfsn_t *root)
 
       struct vtp_cmd *cmd = vtp_get_cmd(argv[0]);
       if (!cmd) {
-         write(sockfd, ERR_NOSUCHCMD, strlen(ERR_NOSUCHCMD));
-         write(sockfd, MSG_LINE_START, strlen(MSG_LINE_START));
+         write(fd, ERR_NOSUCHCMD, strlen(ERR_NOSUCHCMD));
+         write(fd, MSG_LINE_START, strlen(MSG_LINE_START));
          return;
       }
     
-      char *errmsg = cmd->func(sockfd, root, cwd, argi, argv);
+      char *errmsg = cmd->func(fd, root, cwd, argi, argv);
       if (errmsg) {
-         write(sockfd, errmsg, strlen(errmsg));
+         write(fd, errmsg, strlen(errmsg));
       }
 
-      write(sockfd, MSG_LINE_START, strlen(MSG_LINE_START));
+      write(fd, MSG_LINE_START, strlen(MSG_LINE_START));
    }
 
-   write(sockfd, MSG_GOODBYE, strlen(MSG_GOODBYE));
+   write(fd, MSG_GOODBYE, strlen(MSG_GOODBYE));
    vfs_close(cwd);
    vfs_close(root);
 }
