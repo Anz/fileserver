@@ -1,0 +1,12 @@
+#!/bin/bash
+
+# set settings
+PORT=8000
+MAX_CLIENTS=50
+
+# start server
+echo "Starting server on localhost:$PORT and max. clients of $MAX_CLIENTS"
+./fileserver $PORT $MAX_CLIENTS
+
+# exists
+echo "Server stopped"
