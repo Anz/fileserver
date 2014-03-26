@@ -6,18 +6,27 @@
 
 static vtp_socket_t socket = VTS_SOCKET_INIT;
 
-void signal_handler(int signal)
+static void print_usage(void)
+{
+   puts("usage: fileserver <port> [maxclients]");
+}
+
+static void signal_handler(int signal)
 {
    printf("shutdown server\n");
    vtp_stop(&socket);
 }
 
-int main(int argc, char* argv[]) {
-   int port = 8000, maxclients = 50;
+int main(int argc, char* argv[])
+{
+   int port, maxclients = 50;
    
    // parse args
-   if (argc > 1)
-      port = atoi(argv[1]);
+   if (argc < 2) {
+      print_usage();
+      return 1;
+   }
+   port = atoi(argv[1]);
 
    if (argc > 2)
       maxclients = atoi(argv[2]);
