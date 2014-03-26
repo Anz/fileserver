@@ -6,18 +6,18 @@
 #include <pthread.h>
 #include <fcntl.h>
 
-#define WELCOME_TEXT "hello client and welcome to multithreading fileserver\n"
+#define MSG_WELCOME "hello client and welcome to multithreading fileserver\n"
 #define MSG_GOODBYE "Good bye!\n"
-#define LINE_START "> "
+#define MSG_LINE_START "> "
 #define MSG_FILECREATED "FILECREATED\n"
-#define NOSUCHFILE "NOSUCHFILE\n"
-#define MSG_NOSUCHCMD "NOSUCHCMD\n"
-#define ERR_INVALIDCMD "INVALIDCMD\n"
-#define ERR_FILEEXISTS "FILEEXISTS\n"
+#define ERR_NOSUCHFILE "NOSUCHFILE No such file\n"
+#define ERR_NOSUCHCMD "NOSUCHCMD No such command\n"
+#define ERR_INVALIDCMD "INVALIDCMD Invalid arguments\n"
+#define ERR_FILEEXISTS "FILEEXISTS File does not exists\n"
 
 struct vtp_cmd {
    char* name;
-   void (*func)(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* argv[]);
+   char* (*func)(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* argv[]);
 };
 
 static vfsn_t* vtp_path(vfsn_t *cwd, char* path)
@@ -50,17 +50,16 @@ static int vtp_read(int fd, vfsn_t *root, char *buf, size_t size)
    return 0;
 }
 
-static void vtp_cmd_create(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* argv[])
+static char* vtp_cmd_create(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* argv[])
 {
    if (argc < 3) {
-      write(fd, ERR_INVALIDCMD, strlen(ERR_INVALIDCMD));
-      return;
+      return ERR_INVALIDCMD;
    }
 
    int len = atoi(argv[2]);
    char content[len];
    if (vtp_read(fd, root, content, len)) {
-      return;
+      return NULL;
    }
 
    vfsn_t *node = vfs_create(cwd, argv[1], VFS_FILE);
@@ -68,30 +67,30 @@ static void vtp_cmd_create(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* ar
       vfs_write(node, content, len);
       write(fd, MSG_FILECREATED, strlen(MSG_FILECREATED));
    } else {
-      write(fd, ERR_FILEEXISTS, strlen(ERR_FILEEXISTS));
+      return ERR_FILEEXISTS;
    }
 
    vfs_close(node);
+   return NULL;
 }
 
-static void vtp_cmd_delete(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* argv[])
+static char* vtp_cmd_delete(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* argv[])
 {
    if (argc < 2) {
-      write(fd, ERR_INVALIDCMD, strlen(ERR_INVALIDCMD));
-      return;
+      return ERR_INVALIDCMD;
    }
 
    vfsn_t *file = vtp_path(cwd, argv[1]);
    if (!file) {
-      write(fd, NOSUCHFILE, strlen(NOSUCHFILE));
-      return;
+      return ERR_NOSUCHFILE;
    }
 
    vfs_delete(file);
    vfs_close(file);
+   return NULL;
 }
 
-static void vtp_cmd_list(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* argv[])
+static char* vtp_cmd_list(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* argv[])
 {
    vfsn_t *it = vfs_child(cwd);
    while (it) {
@@ -103,19 +102,18 @@ static void vtp_cmd_list(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* argv
       it = vfs_next(it);
       vfs_close(tmp);
    }
+   return NULL;
 }
 
-static void vtp_cmd_read(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* argv[])
+static char* vtp_cmd_read(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* argv[])
 {
    if (argc < 2) {
-      write(fd, ERR_INVALIDCMD, strlen(ERR_INVALIDCMD));
-      return;
+      return ERR_INVALIDCMD;
    }
 
    vfsn_t *file = vtp_path(cwd, argv[1]);
    if (!file) {
-      write(fd, NOSUCHFILE, strlen(NOSUCHFILE));
-      return;
+      return ERR_NOSUCHFILE;
    }
 
    int size = vfs_size(file);
@@ -124,19 +122,19 @@ static void vtp_cmd_read(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* argv
    write(fd, content, size);
    write(fd, "\n", 1);
    vfs_close(file);
+   return NULL;
 }
 
-static void vtp_cmd_update(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* argv[])
+static char* vtp_cmd_update(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* argv[])
 {
    if (argc < 3) {
-      write(fd, ERR_INVALIDCMD, strlen(ERR_INVALIDCMD));
-      return;
+      return ERR_INVALIDCMD;
    }
 
    int len = atoi(argv[2]);
    char content[len];
    if (vtp_read(fd, root, content, len)) {
-      return;
+      return NULL;
    }
 
    vfsn_t *node = vtp_path(cwd, argv[1]);
@@ -148,11 +146,13 @@ static void vtp_cmd_update(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* ar
    }
 
    vfs_close(node);
+   return NULL;
 }
 
-static void vtp_cmd_exit(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* argv[])
+static char* vtp_cmd_exit(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* argv[])
 {
    close(fd);
+   return NULL;
 }
 
 static struct vtp_cmd cmds[] = {
@@ -186,8 +186,8 @@ void vtp_handle(int fd, vfsn_t *root)
    memset(buf, 0, 512);
 
    // send welcome
-   write(sockfd, WELCOME_TEXT, strlen(WELCOME_TEXT));
-   write(sockfd, LINE_START, strlen(LINE_START));
+   write(sockfd, MSG_WELCOME, strlen(MSG_WELCOME));
+   write(sockfd, MSG_LINE_START, strlen(MSG_LINE_START));
 
    while (!vfs_is_deleted(root) && fcntl(sockfd, F_GETFL) != -1) {
       int len;
@@ -204,12 +204,18 @@ void vtp_handle(int fd, vfsn_t *root)
       }
 
       struct vtp_cmd *cmd = vtp_get_cmd(argv[0]);
-      if (cmd) {
-         cmd->func(sockfd, root, cwd, argi, argv);
-      } else {
-         write(sockfd, MSG_NOSUCHCMD, strlen(MSG_NOSUCHCMD));
+      if (!cmd) {
+         write(sockfd, ERR_NOSUCHCMD, strlen(ERR_NOSUCHCMD));
+         write(sockfd, MSG_LINE_START, strlen(MSG_LINE_START));
+         return;
       }
-      write(sockfd, LINE_START, strlen(LINE_START));
+    
+      char *errmsg = cmd->func(sockfd, root, cwd, argi, argv);
+      if (errmsg) {
+         write(sockfd, errmsg, strlen(errmsg));
+      }
+
+      write(sockfd, MSG_LINE_START, strlen(MSG_LINE_START));
    }
 
    write(sockfd, MSG_GOODBYE, strlen(MSG_GOODBYE));
