@@ -13,7 +13,7 @@
 #define ERR_NOSUCHFILE "NOSUCHFILE No such file\n"
 #define ERR_NOSUCHCMD "NOSUCHCMD No such command\n"
 #define ERR_INVALIDCMD "INVALIDCMD Invalid arguments\n"
-#define ERR_FILEEXISTS "FILEEXISTS File does not exists\n"
+#define ERR_FILEEXISTS "FILEEXISTS File already exists\n"
 
 struct vtp_cmd {
    char* name;
@@ -56,8 +56,9 @@ static char* vtp_cmd_create(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* a
       return ERR_INVALIDCMD;
    }
 
-   int len = atoi(argv[2]);
+   int len = atoi(argv[2]) + 1;
    char content[len];
+   memset(content, 0, len);
    if (vtp_read(fd, root, content, len)) {
       return NULL;
    }
@@ -206,7 +207,7 @@ void vtp_handle(int fd, vfsn_t *root)
       if (!cmd) {
          write(fd, ERR_NOSUCHCMD, strlen(ERR_NOSUCHCMD));
          write(fd, MSG_LINE_START, strlen(MSG_LINE_START));
-         return;
+         continue;
       }
     
       char *errmsg = cmd->func(fd, root, cwd, argi, argv);

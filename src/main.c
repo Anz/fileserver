@@ -1,7 +1,9 @@
+#include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <signal.h>
 
+#include "log.h"
 #include "vts.h"
 
 static vtp_socket_t socket = VTS_SOCKET_INIT;
@@ -20,6 +22,9 @@ static void signal_handler(int signal)
 int main(int argc, char* argv[])
 {
    int port, maxclients = 50;
+
+   // setup logger
+   log_set(STDOUT_FILENO);
    
    // parse args
    if (argc < 2) {
