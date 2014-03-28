@@ -32,7 +32,8 @@ static void vtp_pathpart(vfsn_t **node, char* path)
       vfs_parent2(node);
       return;
    } 
-      
+  
+   vfs_child2(node); 
    while (*node) {
       char name[256];
       vfs_name(*node, name, 256);
@@ -71,10 +72,6 @@ static int vtp_read(int fd, vfsn_t *root, char *buf, size_t size)
 
 static char* vtp_cmd_create(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* argv[])
 {
-   if (argc < 3) {
-      return ERR_INVALIDCMD;
-   }
-
    int len = atoi(argv[2]) + 1;
    char content[len];
    memset(content, 0, len);
@@ -82,7 +79,16 @@ static char* vtp_cmd_create(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* a
       return NULL;
    }
 
-   vfsn_t *node = vfs_create(cwd, argv[1], VFS_FILE);
+   char* path = argv[1];
+   char* file = path;
+   char* last_slash = strrchr(path, '/');
+   if (last_slash) {
+      *last_slash = '\0';
+      file = last_slash + 1;
+   }
+
+   vfsn_t *parent = vtp_path(cwd, path);
+   vfsn_t *node = vfs_create(parent ? parent : cwd, file, VFS_FILE);
    if (node) {
       vfs_write(node, content, len);
       write(fd, MSG_FILECREATED, strlen(MSG_FILECREATED));
@@ -90,6 +96,7 @@ static char* vtp_cmd_create(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* a
       return ERR_FILEEXISTS;
    }
 
+   vfs_close(parent);
    vfs_close(node);
    return NULL;
 }
@@ -131,7 +138,8 @@ static char* vtp_cmd_list(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* arg
       path = argv[1];
    }
 
-   vfsn_t *it = vfs_child(vtp_path(cwd, path));
+   vfsn_t *it = vtp_path(cwd, path);
+   vfs_child2(&it);
    while (it) {
       char name[256];
       vfs_name(it, name, 256);
