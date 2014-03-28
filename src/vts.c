@@ -84,7 +84,7 @@ int vtp_start(vtp_socket_t* sock, int port, int max_clients)
    if (sockfd < 0)
       return 1;
 
-    vfsn_t *root = vfs_create(NULL, "hello", VFS_DIR);
+    vfsn_t *root = vfs_create(NULL, "/", VFS_DIR);
    if (!root) {
       close(sockfd);
       return 1;

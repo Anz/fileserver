@@ -231,6 +231,9 @@ int vfs_size(vfsn_t *node)
 
 vfsn_t* vfs_parent(vfsn_t *node) 
 {
+   if (!node)
+      return NULL;
+
    vfsn_t* parent = NULL;
    VFS_SAFE_READ(node, parent = vfs_open(node->parent))
    return parent;
@@ -238,6 +241,9 @@ vfsn_t* vfs_parent(vfsn_t *node)
 
 vfsn_t* vfs_child(vfsn_t *node)
 {
+   if (!node)
+      return NULL;
+
    vfsn_t* child = NULL;
    VFS_SAFE_READ(node, child = vfs_open(node->child))
    return child;
@@ -245,6 +251,9 @@ vfsn_t* vfs_child(vfsn_t *node)
 
 vfsn_t* vfs_prev(vfsn_t *node)
 {
+   if (!node)
+      return NULL;
+
    vfsn_t* prev = NULL;
    VFS_SAFE_READ(node, prev = vfs_open(node->sil_prev))
    return prev;
@@ -252,6 +261,9 @@ vfsn_t* vfs_prev(vfsn_t *node)
 
 vfsn_t* vfs_next(vfsn_t *node)
 {
+   if (!node)
+      return NULL;
+
    vfsn_t* next = NULL;
    VFS_SAFE_READ(node, next = vfs_open(node->sil_next))
    return next;

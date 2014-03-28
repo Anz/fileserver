@@ -9,7 +9,8 @@
 #define MSG_WELCOME "hello client and welcome to multithreading fileserver\n"
 #define MSG_GOODBYE "Good bye!\n"
 #define MSG_LINE_START "> "
-#define MSG_FILECREATED "FILECREATED\n"
+#define MSG_FILECREATED "FILECREATED File created\n"
+#define MSG_DIRCREATED "DIRCREATED Directory created\n"
 #define ERR_NOSUCHFILE "NOSUCHFILE No such file\n"
 #define ERR_NOSUCHCMD "NOSUCHCMD No such command\n"
 #define ERR_INVALIDCMD "INVALIDCMD Invalid arguments\n"
@@ -20,20 +21,41 @@ struct vtp_cmd {
    char* (*func)(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* argv[]);
 };
 
+static void vtp_pathpart(vfsn_t **node, char* path)
+{
+   vfsn_t *current = *node;
+
+   if (strcmp(".", path) == 0) {
+      // nothing to do
+   } else if (strcmp("..", path) == 0) {
+      *node = vfs_parent(current);
+      vfs_close(current);
+   } else {
+      vfsn_t *it = vfs_child(current);
+      while (it) {
+         char name[256];
+         vfs_name(it, name, 256);
+         if (strcmp(name, path) == 0) { 
+            break;   
+         }
+         vfsn_t* tmp = it;
+         it = vfs_next(it);
+         vfs_close(tmp);
+      }
+      *node = it;
+   }
+}
+
 static vfsn_t* vtp_path(vfsn_t *cwd, char* path)
 {
-   vfsn_t *it = vfs_child(cwd);
-   while (it) {
-      char name[256];
-      vfs_name(it, name, 256);
-      if (strcmp(name, path) == 0) { 
-         return it;
-      }
-      vfsn_t* tmp = it;
-      it = vfs_next(it);
-      vfs_close(tmp);
+   char *pathtok = strtok(path, "/");
+   vfsn_t *node = vfs_open(cwd);
+   while (node && pathtok) {
+      vtp_pathpart(&node, pathtok);
+      pathtok = strtok(NULL, "/");
    }
-   return NULL;
+
+   return node;
 }
 
 static int vtp_read(int fd, vfsn_t *root, char *buf, size_t size)
@@ -75,6 +97,23 @@ static char* vtp_cmd_create(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* a
    return NULL;
 }
 
+static char* vtp_cmd_createdir(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* argv[])
+{
+   if (argc < 2) {
+      return ERR_INVALIDCMD;
+   }
+
+   vfsn_t *node = vfs_create(cwd, argv[1], VFS_DIR);
+   if (node) {
+      write(fd, MSG_DIRCREATED, strlen(MSG_DIRCREATED));
+   } else {
+      return ERR_FILEEXISTS;
+   }
+
+   vfs_close(node);
+   return NULL;
+}
+
 static char* vtp_cmd_delete(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* argv[])
 {
    if (argc < 2) {
@@ -93,7 +132,13 @@ static char* vtp_cmd_delete(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* a
 
 static char* vtp_cmd_list(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* argv[])
 {
-   vfsn_t *it = vfs_child(cwd);
+   char default_path[] = ".";
+   char *path = default_path;
+   if (argc > 1) {
+      path = argv[1];
+   }
+
+   vfsn_t *it = vfs_child(vtp_path(cwd, path));
    while (it) {
       char name[256];
       vfs_name(it, name, 256);
@@ -160,6 +205,8 @@ static struct vtp_cmd cmds[] = {
    { "ls", vtp_cmd_list },
    { "list", vtp_cmd_list },
    { "create", vtp_cmd_create },
+   { "createdir", vtp_cmd_createdir },
+   { "mkdir", vtp_cmd_createdir },
    { "delete", vtp_cmd_delete },
    { "rm", vtp_cmd_delete },
    { "exit", vtp_cmd_exit },
