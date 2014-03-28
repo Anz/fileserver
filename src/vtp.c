@@ -19,7 +19,7 @@
 struct vtp_cmd {
    char* name;
    int args;
-   char* (*func)(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* argv[]);
+   char* (*func)(int fd, vfsn_t *root, vfsn_t **cwd, int argc, char* argv[]);
 };
 
 static void vtp_pathpart(vfsn_t **node, char* path)
@@ -70,7 +70,7 @@ static int vtp_read(int fd, vfsn_t *root, char *buf, size_t size)
    return 0;
 }
 
-static char* vtp_cmd_create(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* argv[])
+static char* vtp_cmd_create(int fd, vfsn_t *root, vfsn_t **cwd, int argc, char* argv[])
 {
    int len = atoi(argv[2]) + 1;
    char content[len];
@@ -87,8 +87,8 @@ static char* vtp_cmd_create(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* a
       file = last_slash + 1;
    }
 
-   vfsn_t *parent = vtp_path(cwd, path);
-   vfsn_t *node = vfs_create(parent ? parent : cwd, file, VFS_FILE);
+   vfsn_t *parent = vtp_path(*cwd, path);
+   vfsn_t *node = vfs_create(parent ? parent : *cwd, file, VFS_FILE);
    if (node) {
       vfs_write(node, content, len);
       write(fd, MSG_FILECREATED, strlen(MSG_FILECREATED));
@@ -101,9 +101,9 @@ static char* vtp_cmd_create(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* a
    return NULL;
 }
 
-static char* vtp_cmd_createdir(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* argv[])
+static char* vtp_cmd_createdir(int fd, vfsn_t *root, vfsn_t **cwd, int argc, char* argv[])
 {
-   vfsn_t *node = vfs_create(cwd, argv[1], VFS_DIR);
+   vfsn_t *node = vfs_create(*cwd, argv[1], VFS_DIR);
    if (node) {
       write(fd, MSG_DIRCREATED, strlen(MSG_DIRCREATED));
    } else {
@@ -114,13 +114,13 @@ static char* vtp_cmd_createdir(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char
    return NULL;
 }
 
-static char* vtp_cmd_delete(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* argv[])
+static char* vtp_cmd_delete(int fd, vfsn_t *root, vfsn_t **cwd, int argc, char* argv[])
 {
    if (argc < 2) {
       return ERR_INVALIDCMD;
    }
 
-   vfsn_t *file = vtp_path(cwd, argv[1]);
+   vfsn_t *file = vtp_path(*cwd, argv[1]);
    if (!file) {
       return ERR_NOSUCHFILE;
    }
@@ -130,15 +130,16 @@ static char* vtp_cmd_delete(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* a
    return NULL;
 }
 
-static char* vtp_cmd_list(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* argv[])
+static char* vtp_cmd_list(int fd, vfsn_t *root, vfsn_t **cwd, int argc, char* argv[])
 {
-   char default_path[] = ".";
-   char *path = default_path;
+   vfsn_t *it = *cwd;
    if (argc > 1) {
-      path = argv[1];
+      it = vtp_path(*cwd, argv[1]);
    }
 
-   vfsn_t *it = vtp_path(cwd, path);
+   if (!it)
+      return ERR_NOSUCHFILE;
+
    vfs_child2(&it);
    while (it) {
       char name[256];
@@ -150,13 +151,13 @@ static char* vtp_cmd_list(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* arg
    return NULL;
 }
 
-static char* vtp_cmd_read(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* argv[])
+static char* vtp_cmd_read(int fd, vfsn_t *root, vfsn_t **cwd, int argc, char* argv[])
 {
    if (argc < 2) {
       return ERR_INVALIDCMD;
    }
 
-   vfsn_t *file = vtp_path(cwd, argv[1]);
+   vfsn_t *file = vtp_path(*cwd, argv[1]);
    if (!file) {
       return ERR_NOSUCHFILE;
    }
@@ -170,7 +171,7 @@ static char* vtp_cmd_read(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* arg
    return NULL;
 }
 
-static char* vtp_cmd_update(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* argv[])
+static char* vtp_cmd_update(int fd, vfsn_t *root, vfsn_t **cwd, int argc, char* argv[])
 {
    if (argc < 3) {
       return ERR_INVALIDCMD;
@@ -182,7 +183,7 @@ static char* vtp_cmd_update(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* a
       return NULL;
    }
 
-   vfsn_t *node = vtp_path(cwd, argv[1]);
+   vfsn_t *node = vtp_path(*cwd, argv[1]);
    if (node) {
       vfs_write(node, content, len);
       write(fd, MSG_FILECREATED, strlen(MSG_FILECREATED));
@@ -194,7 +195,18 @@ static char* vtp_cmd_update(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* a
    return NULL;
 }
 
-static char* vtp_cmd_exit(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* argv[])
+static char* vtp_cmd_cd(int fd, vfsn_t *root, vfsn_t **cwd, int argc, char* argv[])
+{
+   vfsn_t *next = vtp_path(*cwd, argv[1]);
+   if (!next)
+      return ERR_NOSUCHFILE;
+
+   vfs_close(*cwd);
+   *cwd = next;
+   return NULL;
+}
+
+static char* vtp_cmd_exit(int fd, vfsn_t *root, vfsn_t **cwd, int argc, char* argv[])
 {
    close(fd);
    return NULL;
@@ -212,6 +224,7 @@ static struct vtp_cmd cmds[] = {
    { "read", 1, vtp_cmd_read },
    { "cat", 1, vtp_cmd_read },
    { "update", 2, vtp_cmd_update },
+   { "cd", 1, vtp_cmd_cd },
    { }
 };
 
@@ -265,7 +278,7 @@ void vtp_handle(int fd, vfsn_t *root)
          continue;
       }
     
-      char *errmsg = cmd->func(fd, root, cwd, argi, argv);
+      char *errmsg = cmd->func(fd, root, &cwd, argi, argv);
       if (errmsg) {
          write(fd, errmsg, strlen(errmsg));
       }

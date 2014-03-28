@@ -15,7 +15,6 @@ static void print_usage(void)
 
 static void signal_handler(int signal)
 {
-   printf("shutdown server\n");
    vtp_stop(&socket);
 }
 
@@ -44,8 +43,5 @@ int main(int argc, char* argv[])
    sigaction(SIGINT, &sighandler, NULL);
 
    // start socket
-   int result = vtp_start(&socket, port, maxclients);
-   printf("socket returned %i\n",  result);
-
-   return 0;
+   return vtp_start(&socket, port, maxclients);
 }
