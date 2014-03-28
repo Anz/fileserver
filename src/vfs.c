@@ -9,9 +9,9 @@
 #define VFS_WRITE pthread_rwlock_wrlock
 
 #define VFS_SAFE(lock_funtion, node, ...) \
-   if (node) lock_funtion(&node->lock); \
+   if (node) lock_funtion(&(node)->lock); \
    { __VA_ARGS__; } \
-   if (node) pthread_rwlock_unlock(&node->lock);
+   if (node) pthread_rwlock_unlock(&(node)->lock);
 
 #define VFS_SAFE_READ(node, ...) VFS_SAFE(VFS_READ, node, __VA_ARGS__)
 #define VFS_SAFE_WRITE(node, ...) VFS_SAFE(VFS_WRITE, node, __VA_ARGS__)
@@ -269,3 +269,42 @@ vfsn_t* vfs_next(vfsn_t *node)
    return next;
 }
 
+void vfs_parent2(vfsn_t **node)
+{
+   if (!node || !*node)
+      return;
+
+   vfsn_t *current = *node;
+   VFS_SAFE_READ(current, *node = current->parent);
+   vfs_close(current);
+}
+
+void vfs_child2(vfsn_t **node)
+{
+   if (!node || !*node)
+      return;
+
+   vfsn_t *current = *node;
+   VFS_SAFE_READ(current, *node = current->child);
+   vfs_close(current);
+}
+
+void vfs_prev2(vfsn_t **node)
+{
+   if (!node || !*node)
+      return;
+
+   vfsn_t *current = *node;
+   VFS_SAFE_READ(current, *node = current->sil_prev);
+   vfs_close(current);
+}
+
+void vfs_next2(vfsn_t **node)
+{
+   if (!node || !*node)
+      return;
+
+   vfsn_t *current = *node;
+   VFS_SAFE_READ(current, *node = current->sil_next);
+   vfs_close(current);
+}

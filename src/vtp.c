@@ -18,31 +18,28 @@
 
 struct vtp_cmd {
    char* name;
+   int args;
    char* (*func)(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* argv[]);
 };
 
 static void vtp_pathpart(vfsn_t **node, char* path)
 {
-   vfsn_t *current = *node;
-
    if (strcmp(".", path) == 0) {
-      // nothing to do
-   } else if (strcmp("..", path) == 0) {
-      *node = vfs_parent(current);
-      vfs_close(current);
-   } else {
-      vfsn_t *it = vfs_child(current);
-      while (it) {
-         char name[256];
-         vfs_name(it, name, 256);
-         if (strcmp(name, path) == 0) { 
-            break;   
-         }
-         vfsn_t* tmp = it;
-         it = vfs_next(it);
-         vfs_close(tmp);
+      return;
+   }
+
+   if (strcmp("..", path) == 0) {
+      vfs_parent2(node);
+      return;
+   } 
+      
+   while (*node) {
+      char name[256];
+      vfs_name(*node, name, 256);
+      if (strcmp(name, path) == 0) { 
+         break;   
       }
-      *node = it;
+      vfs_next2(node);
    }
 }
 
@@ -99,10 +96,6 @@ static char* vtp_cmd_create(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* a
 
 static char* vtp_cmd_createdir(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* argv[])
 {
-   if (argc < 2) {
-      return ERR_INVALIDCMD;
-   }
-
    vfsn_t *node = vfs_create(cwd, argv[1], VFS_DIR);
    if (node) {
       write(fd, MSG_DIRCREATED, strlen(MSG_DIRCREATED));
@@ -144,9 +137,7 @@ static char* vtp_cmd_list(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* arg
       vfs_name(it, name, 256);
       write(fd, name, strlen(name));
       write(fd, "\n", 1);
-      vfsn_t* tmp = it;
-      it = vfs_next(it);
-      vfs_close(tmp);
+      vfs_next2(&it);
    }
    return NULL;
 }
@@ -202,17 +193,17 @@ static char* vtp_cmd_exit(int fd, vfsn_t *root, vfsn_t *cwd, int argc, char* arg
 }
 
 static struct vtp_cmd cmds[] = {
-   { "ls", vtp_cmd_list },
-   { "list", vtp_cmd_list },
-   { "create", vtp_cmd_create },
-   { "createdir", vtp_cmd_createdir },
-   { "mkdir", vtp_cmd_createdir },
-   { "delete", vtp_cmd_delete },
-   { "rm", vtp_cmd_delete },
-   { "exit", vtp_cmd_exit },
-   { "read", vtp_cmd_read },
-   { "cat", vtp_cmd_read },
-   { "update", vtp_cmd_update },
+   { "ls", 0, vtp_cmd_list },
+   { "list", 0, vtp_cmd_list },
+   { "create", 2, vtp_cmd_create },
+   { "createdir", 1, vtp_cmd_createdir },
+   { "mkdir", 1, vtp_cmd_createdir },
+   { "delete", 1, vtp_cmd_delete },
+   { "rm", 1, vtp_cmd_delete },
+   { "exit", 0, vtp_cmd_exit },
+   { "read", 1, vtp_cmd_read },
+   { "cat", 1, vtp_cmd_read },
+   { "update", 2, vtp_cmd_update },
    { }
 };
 
@@ -251,8 +242,17 @@ void vtp_handle(int fd, vfsn_t *root)
       }
 
       struct vtp_cmd *cmd = vtp_get_cmd(argv[0]);
+
+      // check if command was found
       if (!cmd) {
          write(fd, ERR_NOSUCHCMD, strlen(ERR_NOSUCHCMD));
+         write(fd, MSG_LINE_START, strlen(MSG_LINE_START));
+         continue;
+      }
+
+      // check number of arguments
+      if (cmd->args + 1 > argi) {
+         write(fd, ERR_INVALIDCMD, strlen(ERR_INVALIDCMD));
          write(fd, MSG_LINE_START, strlen(MSG_LINE_START));
          continue;
       }
@@ -265,6 +265,7 @@ void vtp_handle(int fd, vfsn_t *root)
       write(fd, MSG_LINE_START, strlen(MSG_LINE_START));
    }
 
+   // send bye and cleanup
    write(fd, MSG_GOODBYE, strlen(MSG_GOODBYE));
    vfs_close(cwd);
    vfs_close(root);
