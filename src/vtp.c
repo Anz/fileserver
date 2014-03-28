@@ -1,12 +1,13 @@
 #include "vtp.h"
 #include <unistd.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <pthread.h>
 #include <fcntl.h>
 
-#define MSG_WELCOME "hello client and welcome to multithreading fileserver\n"
+#define MSG_WELCOME "hello client and welcome to multithreading fileserver"
 #define MSG_GOODBYE "Good bye!\n"
 #define MSG_LINE_START "> "
 #define MSG_FILECREATED "FILECREATED File created\n"
@@ -103,23 +104,29 @@ static char* vtp_cmd_create(int fd, vfsn_t *root, vfsn_t **cwd, int argc, char* 
 
 static char* vtp_cmd_createdir(int fd, vfsn_t *root, vfsn_t **cwd, int argc, char* argv[])
 {
-   vfsn_t *node = vfs_create(*cwd, argv[1], VFS_DIR);
+   char* path = argv[1];
+   char* file = path;
+   char* last_slash = strrchr(path, '/');
+   if (last_slash) {
+      *last_slash = '\0';
+      file = last_slash + 1;
+   }
+
+   vfsn_t *parent = vtp_path(*cwd, path);
+   vfsn_t *node = vfs_create(parent ? parent : *cwd, file, VFS_DIR);
    if (node) {
       write(fd, MSG_DIRCREATED, strlen(MSG_DIRCREATED));
    } else {
       return ERR_FILEEXISTS;
    }
 
+   vfs_close(parent);
    vfs_close(node);
    return NULL;
 }
 
 static char* vtp_cmd_delete(int fd, vfsn_t *root, vfsn_t **cwd, int argc, char* argv[])
 {
-   if (argc < 2) {
-      return ERR_INVALIDCMD;
-   }
-
    vfsn_t *file = vtp_path(*cwd, argv[1]);
    if (!file) {
       return ERR_NOSUCHFILE;
@@ -132,9 +139,11 @@ static char* vtp_cmd_delete(int fd, vfsn_t *root, vfsn_t **cwd, int argc, char* 
 
 static char* vtp_cmd_list(int fd, vfsn_t *root, vfsn_t **cwd, int argc, char* argv[])
 {
-   vfsn_t *it = *cwd;
+   vfsn_t *it;
    if (argc > 1) {
       it = vtp_path(*cwd, argv[1]);
+   } else {
+      it = vfs_open(*cwd);
    }
 
    if (!it)
@@ -228,10 +237,10 @@ static struct vtp_cmd cmds[] = {
    { }
 };
 
-static struct vtp_cmd* vtp_get_cmd(char *name)
+static struct vtp_cmd* vtp_get_cmd(char *name, size_t len)
 {
    for (struct vtp_cmd *cmd = &cmds[0]; cmd->name; cmd++) {
-      if (strcmp(cmd->name, name) == 0)
+      if (strncmp(cmd->name, name, len) == 0)
          return cmd;
    }
    return NULL;
@@ -245,12 +254,14 @@ void vtp_handle(int fd, vfsn_t *root)
    memset(buf, 0, 512);
 
    // send welcome
-   write(fd, MSG_WELCOME, strlen(MSG_WELCOME));
-   write(fd, MSG_LINE_START, strlen(MSG_LINE_START));
+   dprintf(fd, "%s\n%s", MSG_WELCOME, MSG_LINE_START);
 
    while (!vfs_is_deleted(root) && fcntl(fd, F_GETFL) != -1) {
       int len;
       if ((len = read(fd, buf,512)) <= 0) {
+         if (len == 0 ) {
+            break;
+         }
          continue;
       }
       buf[len-2] = '\0';
@@ -262,7 +273,7 @@ void vtp_handle(int fd, vfsn_t *root)
          argv[argi] = strtok(NULL, " ");
       }
 
-      struct vtp_cmd *cmd = vtp_get_cmd(argv[0]);
+      struct vtp_cmd *cmd = vtp_get_cmd(argv[0], len);
 
       // check if command was found
       if (!cmd) {

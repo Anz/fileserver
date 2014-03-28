@@ -1,0 +1,18 @@
+#!/usr/bin/python
+
+import sys
+import socket
+
+port = 8000
+if len(sys.argv) > 1:
+   port = int(sys.argv[1])
+
+print "port ", port
+
+sock = socket.socket();
+sock.connect((socket.gethostname(), port));
+print sock.recv(1024);
+sock.send("mkdir test\0\0");
+sock.send("mkdir test/abc\0\0");
+print sock.recv(1024);
+sock.close

@@ -45,7 +45,7 @@ static int vtp_socket(int port)
    };
 
    // bind socket to address
-   if (bind(sockfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) < 0) {
+   if (bind(sockfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) != 0) {
       return 0;
    }
 
