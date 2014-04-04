@@ -7,6 +7,8 @@
 #include <pthread.h>
 #include <fcntl.h>
 
+#define READ_BUFFER_SIZE 512
+
 #define MSG_WELCOME "hello client and welcome to multithreading fileserver"
 #define MSG_GOODBYE "Good bye!\n"
 #define MSG_LINE_START "> "
@@ -253,23 +255,27 @@ static struct vtp_cmd* vtp_get_cmd(char *name, size_t len)
 
 void vtp_handle(int fd, vfsn_t *root)
 {
+   // node to current working directory
    vfsn_t *cwd = vfs_open(root);
 
-   char buf[512];
-   memset(buf, 0, 512);
+   char buf[READ_BUFFER_SIZE];
 
    // send welcome
    dprintf(fd, "%s\n%s", MSG_WELCOME, MSG_LINE_START);
 
+   // main protocol loop
    while (!vfs_is_deleted(root) && fcntl(fd, F_GETFL) != -1) {
-      int len;
-      if ((len = recv(fd, buf, 512, MSG_DONTWAIT)) <= 0) {
-         if (len == 0 ) {
-            break;
-         }
+      // clear read buffer
+      memset(buf, 0, READ_BUFFER_SIZE);
+
+      int len = recv(fd, buf, READ_BUFFER_SIZE-1, MSG_DONTWAIT);
+
+      // check read timeouts
+      if (len <= 0 ) {
          continue;
       }
-      buf[len-2] = '\0';
+
+      // parse command arguments
       int argi = 0;
       char* argv[4];
       argv[0] = strtok(buf, " ");
@@ -278,7 +284,8 @@ void vtp_handle(int fd, vfsn_t *root)
          argv[argi] = strtok(NULL, " ");
       }
 
-      struct vtp_cmd *cmd = vtp_get_cmd(argv[0], len);
+      // get command from name
+      struct vtp_cmd *cmd = vtp_get_cmd(argv[0], len-2);
 
       // check if command was found
       if (!cmd) {
