@@ -8,9 +8,9 @@
 #include <fcntl.h>
 
 
-static void* vtp_worker(void* data)
+static void* vts_worker(void* data)
 {
-   struct vtp_worker *worker = (struct vtp_worker*)data;
+   struct vts_worker *worker = (struct vts_worker*)data;
 
    // handle virtual transfer protocol
    vtp_handle(worker->fd, worker->root);
@@ -19,11 +19,11 @@ static void* vtp_worker(void* data)
    return NULL;
 }
 
-int vts_init(vtp_socket_t *sock, int port, int max_clients)
+int vts_init(vts_socket_t *sock, int port, int max_clients)
 {
    // init socket
    memset(sock, 0, sizeof(*sock));
-   sock->workers = calloc(sizeof(struct vtp_worker), max_clients);
+   sock->workers = calloc(sizeof(struct vts_worker), max_clients);
    sock->max_clients = max_clients;
 
    // check memory allocation
@@ -71,7 +71,7 @@ int vts_init(vtp_socket_t *sock, int port, int max_clients)
    return 0;
 }
 
-void vts_release(vtp_socket_t *sock)
+void vts_release(vts_socket_t *sock)
 {
    // close server socket
    close(sock->sockfd);
@@ -87,7 +87,7 @@ void vts_release(vtp_socket_t *sock)
    memset(sock, 0, sizeof(*sock));
 }
 
-int vtp_start(vtp_socket_t* sock)
+int vts_start(vts_socket_t* sock)
 { 
    int thread_num = 0;
 
@@ -102,10 +102,10 @@ int vtp_start(vtp_socket_t* sock)
       }
 
       // set client data
-      struct vtp_worker *worker = &sock->workers[thread_num];
+      struct vts_worker *worker = &sock->workers[thread_num];
       worker->fd = clientfd;
       worker->root = vfs_open(sock->root);
-      pthread_create(&sock->workers[thread_num].thread, NULL, vtp_worker, worker);
+      pthread_create(&sock->workers[thread_num].thread, NULL, vts_worker, worker);
       thread_num++;
    }
 
@@ -117,7 +117,7 @@ int vtp_start(vtp_socket_t* sock)
    return 0;
 }
 
-void vtp_stop(vtp_socket_t* sock)
+void vts_stop(vts_socket_t* sock)
 {
    if (!sock)
       return;

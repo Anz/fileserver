@@ -6,7 +6,7 @@
 #include "log.h"
 #include "vts.h"
 
-static vtp_socket_t socket;
+static vts_socket_t socket;
 
 static void print_usage(void)
 {
@@ -15,7 +15,7 @@ static void print_usage(void)
 
 static void signal_handler(int signal)
 {
-   vtp_stop(&socket);
+   vts_stop(&socket);
 }
 
 int main(int argc, char* argv[])
@@ -48,7 +48,7 @@ int main(int argc, char* argv[])
    sigaction(SIGINT, &sighandler, NULL);
 
    // start socket
-   int retval = vtp_start(&socket);
+   int retval = vts_start(&socket);
 
    // release socket
    vts_release(&socket);

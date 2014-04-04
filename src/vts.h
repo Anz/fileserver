@@ -6,7 +6,7 @@
 
 #define VTS_SOCKET_INIT 0
 
-struct vtp_worker {
+struct vts_worker {
    pthread_t thread;
    int fd;
    vfsn_t *root;
@@ -15,29 +15,29 @@ struct vtp_worker {
 typedef struct {
    int sockfd;
    int max_clients;
-   struct vtp_worker *workers;
+   struct vts_worker *workers;
    vfsn_t *root;
-} vtp_socket_t;
+} vts_socket_t;
 
 /*
  * Inits vts socket. Must be called before vtp_start.
  */
-int vts_init(vtp_socket_t *sock, int port, int max_clients);
+int vts_init(vts_socket_t *sock, int port, int max_clients);
 
 /*
  * Releases vts socket.
  */
-void vts_release(vtp_socket_t *sock);
+void vts_release(vts_socket_t *sock);
 
 
 /*
  * Handles client connection and blocks until vts_stop gets called.
  */
-int vtp_start(vtp_socket_t *sock);
+int vts_start(vts_socket_t *sock);
 
 /*
  * Stops given socket.
  */
-void vtp_stop(vtp_socket_t *sock);
+void vts_stop(vts_socket_t *sock);
 
 #endif
