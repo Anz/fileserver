@@ -59,9 +59,20 @@ static vfsn_t* vtp_path(vfsn_t *cwd, char* path)
    return node;
 }
 
-static int vtp_read(int fd, vfsn_t *root, char *buf, size_t size)
+static int vtp_read_packet(int fd, char *buf, size_t size)
 {
-   int current = 0;
+   int len = 0;
+   while (len <= 0) {
+      if (fcntl(fd, F_GETFL) == -1) 
+         return -1;
+      len = recv(fd, buf, size, MSG_DONTWAIT);
+   }
+   return len;
+}
+
+static int vtp_read(int fd, char *buf, size_t size)
+{
+   /*int current = 0;
    while (current < size) {
       if (vfs_is_deleted(root))
          return 1;
@@ -70,7 +81,15 @@ static int vtp_read(int fd, vfsn_t *root, char *buf, size_t size)
       if (len > 0)
          current += len;
    }
-   return 0;
+   return 0;*/
+
+   int len = 0;
+   while (len <= 0) {
+      if (fcntl(fd, F_GETFL) == -1) 
+         return -1;
+      len = recv(fd, buf, size, MSG_DONTWAIT|MSG_WAITALL);
+   }
+   return len;
 }
 
 static int vtp_write(int fd, char *msg)
@@ -83,7 +102,7 @@ static char* vtp_cmd_create(int fd, vfsn_t *root, vfsn_t **cwd, int argc, char* 
    int len = atoi(argv[2]) + 1;
    char content[len];
    memset(content, 0, len);
-   if (vtp_read(fd, root, content, len)) {
+   if (vtp_read(fd, content, len) < 0) {
       return NULL;
    }
 
@@ -195,7 +214,7 @@ static char* vtp_cmd_update(int fd, vfsn_t *root, vfsn_t **cwd, int argc, char* 
 
    int len = atoi(argv[2]);
    char content[len];
-   if (vtp_read(fd, root, content, len)) {
+   if (vtp_read(fd, content, len) < 0) {
       return NULL;
    }
 
@@ -264,24 +283,23 @@ void vtp_handle(int fd, vfsn_t *root)
    dprintf(fd, "%s\n%s", MSG_WELCOME, MSG_LINE_START);
 
    // main protocol loop
-   while (!vfs_is_deleted(root) && fcntl(fd, F_GETFL) != -1) {
+   while (1) {
       // clear read buffer
       memset(buf, 0, READ_BUFFER_SIZE);
-
-      int len = recv(fd, buf, READ_BUFFER_SIZE-1, MSG_DONTWAIT);
-
-      // check read timeouts
-      if (len <= 0 ) {
-         continue;
+      
+      // read command
+      int len = vtp_read_packet(fd, buf, READ_BUFFER_SIZE-1);
+      if (len == -1) {
+         break;
       }
 
       // parse command arguments
       int argi = 0;
       char* argv[4];
-      argv[0] = strtok(buf, " ");
+      argv[0] = strtok(buf, " \n");
       while (argi < 4 && argv[argi]) {
          argi++;
-         argv[argi] = strtok(NULL, " ");
+         argv[argi] = strtok(NULL, " \n");
       }
 
       // get command from name
@@ -309,8 +327,7 @@ void vtp_handle(int fd, vfsn_t *root)
       vtp_write(fd, MSG_LINE_START);
    }
 
-   // send bye and cleanup
-   vtp_write(fd, MSG_GOODBYE);
+   // cleanup
    vfs_close(cwd);
    vfs_close(root);
 }
