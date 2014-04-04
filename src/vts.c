@@ -15,6 +15,9 @@ static void* vts_worker(void* data)
    // handle virtual transfer protocol
    vtp_handle(worker->fd, worker->root);
 
+   // unlock worker
+   pthread_mutex_unlock(&worker->lock);
+
    // exit worker thread
    return NULL;
 }
@@ -24,11 +27,19 @@ int vts_init(vts_socket_t *sock, int port, int max_clients)
    // init socket
    memset(sock, 0, sizeof(*sock));
    sock->workers = calloc(sizeof(struct vts_worker), max_clients);
-   sock->max_clients = max_clients;
 
    // check memory allocation
    if (!sock->workers) {
       return 1;
+   }
+   
+   // init workers
+   memset(sock->workers, 0, sizeof(struct vts_worker));
+   sock->max_clients = max_clients;
+
+   // init locks 
+   for (int i = 0; i < max_clients; i++) {
+      pthread_mutex_init(&sock->workers[i].lock, NULL);
    }
 
    // setup socket
@@ -76,6 +87,11 @@ void vts_release(vts_socket_t *sock)
    // close server socket
    close(sock->sockfd);
 
+   // release locks 
+   for (int i = 0; i < sock->max_clients; i++) {
+      pthread_mutex_destroy(&sock->workers[i].lock);
+   }
+
    // release memory
    free(sock->workers);
 
@@ -89,8 +105,6 @@ void vts_release(vts_socket_t *sock)
 
 int vts_start(vts_socket_t* sock)
 { 
-   int thread_num = 0;
-
    // server loop until filesystem gets deleted
    while (1) {
       // wait for clients
@@ -101,16 +115,30 @@ int vts_start(vts_socket_t* sock)
          break;
       }
 
+      // find free worker slot
+      struct vts_worker *worker = NULL;
+      for (int i = 0; i < sock->max_clients; i++) {
+         if (pthread_mutex_trylock(&sock->workers[i].lock) == 0) {
+            worker = &sock->workers[i];
+            break;
+         }
+      }
+
+      // check if empty slot was found
+      if (!worker) {
+         close(clientfd);
+         continue;
+      }
+
       // set client data
-      struct vts_worker *worker = &sock->workers[thread_num];
+      pthread_join(worker->thread, NULL);
       worker->fd = clientfd;
       worker->root = vfs_open(sock->root);
       pthread_create(&worker->thread, NULL, vts_worker, worker);
-      thread_num++;
    }
 
    // wait for all threads to finish
-   for (int i = 0; i < thread_num; i++) {
+   for (int i = 0; i < sock->max_clients; i++) {
       pthread_join(sock->workers[i].thread, NULL);
    }
 

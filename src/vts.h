@@ -7,6 +7,7 @@
 #define VTS_SOCKET_INIT 0
 
 struct vts_worker {
+   pthread_mutex_t lock;
    pthread_t thread;
    int fd;
    vfsn_t *root;
