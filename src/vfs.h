@@ -13,7 +13,7 @@ typedef struct vfsn {
    char *name, flags;
    void *data;
    size_t data_size;
-   struct vfsn *parent, *child, *sil_prev, *sil_next;
+   struct vfsn *root, *parent, *child, *sil_prev, *sil_next;
 } vfsn_t;
 
 vfsn_t* vfs_open(vfsn_t *node);
@@ -36,5 +36,6 @@ void vfs_parent2(vfsn_t **node);
 void vfs_child2(vfsn_t **node);
 void vfs_prev2(vfsn_t **node);
 void vfs_next2(vfsn_t **node);
+void vfs_root(vfsn_t **node);
 
 #endif

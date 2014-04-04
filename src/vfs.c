@@ -43,6 +43,8 @@ static int vfs_attach(vfsn_t *parent, vfsn_t *child)
 
    int retval = 0;
    VFS_SAFE_WRITE(parent,
+      child->root = parent->root;
+
       if (!parent->child) {
          child->sil_next = NULL;
          parent->child = child;
@@ -82,6 +84,8 @@ static void vfs_detach(vfsn_t* node)
    vfsn_t *prev = vfs_prev(node), *next = vfs_next(node), *parent = prev ? NULL : vfs_parent(node);
    // lock in order parent, prev, node, next to prevent dead locks!
    VFS_SAFE4(VFS_WRITE, parent, prev, node, next,
+      node->root = NULL;
+
       // link prev or parent to next
       if (prev) {
          prev->sil_next = next;
@@ -306,5 +310,15 @@ void vfs_next2(vfsn_t **node)
 
    vfsn_t *current = *node;
    VFS_SAFE_READ(current, *node = vfs_open(current->sil_next));
+   vfs_close(current);
+}
+
+void vfs_root(vfsn_t **node)
+{
+   if (!node || !*node)
+      return;
+
+   vfsn_t *current = *node;
+   VFS_SAFE_READ(current, *node = vfs_open(current->root));
    vfs_close(current);
 }
