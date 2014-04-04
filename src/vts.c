@@ -105,7 +105,7 @@ int vts_start(vts_socket_t* sock)
       struct vts_worker *worker = &sock->workers[thread_num];
       worker->fd = clientfd;
       worker->root = vfs_open(sock->root);
-      pthread_create(&sock->workers[thread_num].thread, NULL, vts_worker, worker);
+      pthread_create(&worker->thread, NULL, vts_worker, worker);
       thread_num++;
    }
 
