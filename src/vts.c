@@ -7,21 +7,18 @@
 #include <pthread.h>
 #include <fcntl.h>
 
-
 struct vtp_worker {
+   pthread_t thread;
    int fd;
    vfsn_t *root;
 };
 
 static void* vtp_worker(void* data)
 {
-   // copy worker data to stack and free heap memory
-   struct vtp_worker worker;
-   memcpy(&worker, data, sizeof(worker));
-   free(data);
+   struct vtp_worker *worker = (struct vtp_worker*)data;
 
    // handle virtual transfer protocol
-   vtp_handle(worker.fd, worker.root);
+   vtp_handle(worker->fd, worker->root);
 
    // exit worker thread
    return NULL;
@@ -34,6 +31,10 @@ static int vtp_socket(int port)
    if (sockfd < 0) {
       return 0;
    }
+
+   // set reuseable address
+   int optvalue = 1;
+   setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &optvalue, sizeof(optvalue));
 
    // setup socket address
    struct sockaddr_in serv_addr = {
@@ -75,20 +76,23 @@ static int vtp_next_client(int fd)
 int vtp_start(vtp_socket_t* sock, int port, int max_clients)
 {
    int thread_num = 0;
-   pthread_t threads[max_clients];
-   memset(threads, 0, sizeof(threads));
+   struct vtp_worker workers[max_clients];
+   memset(workers, 0, sizeof(workers));
 
+   // init server socket
    int sockfd = vtp_socket(port);
    if (sockfd < 0)
       return 1;
 
-    vfsn_t *root = vfs_create(NULL, "/", VFS_DIR);
+   // create filesystem
+   vfsn_t *root = vfs_create(NULL, "/", VFS_DIR);
    if (!root) {
       close(sockfd);
       return 1;
    }
    *sock = root;
 
+   // server loop until filesystem gets deleted
    while (!vfs_is_deleted(root)) {
       // wait for clients
       int clientfd = vtp_next_client(sockfd);
@@ -96,21 +100,17 @@ int vtp_start(vtp_socket_t* sock, int port, int max_clients)
          continue;
       }
 
-      struct vtp_worker *worker = malloc(sizeof(struct vtp_worker));
-      if (!worker) {
-         close(clientfd);
-         continue;
-      }
-
       // set client data
+      struct vtp_worker *worker = &workers[thread_num];
       worker->fd = clientfd;
       worker->root = vfs_open(root);
-      pthread_create(&threads[thread_num], NULL, vtp_worker, worker);
+      pthread_create(&workers[thread_num].thread, NULL, vtp_worker, worker);
       thread_num++;
    }
 
+   // wait for all threads to finish
    for (int i = 0; i < thread_num; i++) {
-      pthread_join(threads[i], NULL);
+      pthread_join(workers[i].thread, NULL);
    }
 
    // release socket
