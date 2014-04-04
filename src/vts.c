@@ -15,12 +15,15 @@ struct vtp_worker {
 
 static void* vtp_worker(void* data)
 {
-   struct vtp_worker *worker = (struct vtp_worker*)data;
-   int sockfd = worker->fd;
-   vfsn_t *root = worker->root;
+   // copy worker data to stack and free heap memory
+   struct vtp_worker worker;
+   memcpy(&worker, data, sizeof(worker));
    free(data);
-   
-   vtp_handle(sockfd, root);
+
+   // handle virtual transfer protocol
+   vtp_handle(worker.fd, worker.root);
+
+   // exit worker thread
    return NULL;
 }
 
