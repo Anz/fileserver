@@ -71,6 +71,11 @@ static int vtp_read(int fd, vfsn_t *root, char *buf, size_t size)
    return 0;
 }
 
+static int vtp_write(int fd, char *msg)
+{
+   return send(fd, msg, strlen(msg), MSG_NOSIGNAL|MSG_DONTWAIT);
+}
+
 static char* vtp_cmd_create(int fd, vfsn_t *root, vfsn_t **cwd, int argc, char* argv[])
 {
    int len = atoi(argv[2]) + 1;
@@ -258,7 +263,7 @@ void vtp_handle(int fd, vfsn_t *root)
 
    while (!vfs_is_deleted(root) && fcntl(fd, F_GETFL) != -1) {
       int len;
-      if ((len = read(fd, buf,512)) <= 0) {
+      if ((len = recv(fd, buf, 512, MSG_DONTWAIT)) <= 0) {
          if (len == 0 ) {
             break;
          }
@@ -277,28 +282,28 @@ void vtp_handle(int fd, vfsn_t *root)
 
       // check if command was found
       if (!cmd) {
-         write(fd, ERR_NOSUCHCMD, strlen(ERR_NOSUCHCMD));
-         write(fd, MSG_LINE_START, strlen(MSG_LINE_START));
+         vtp_write(fd, ERR_NOSUCHCMD);
+         vtp_write(fd, MSG_LINE_START);
          continue;
       }
 
       // check number of arguments
       if (cmd->args + 1 > argi) {
-         write(fd, ERR_INVALIDCMD, strlen(ERR_INVALIDCMD));
-         write(fd, MSG_LINE_START, strlen(MSG_LINE_START));
+         vtp_write(fd, ERR_INVALIDCMD);
+         vtp_write(fd, MSG_LINE_START);
          continue;
       }
     
       char *errmsg = cmd->func(fd, root, &cwd, argi, argv);
       if (errmsg) {
-         write(fd, errmsg, strlen(errmsg));
+         vtp_write(fd, errmsg);
       }
 
-      write(fd, MSG_LINE_START, strlen(MSG_LINE_START));
+      vtp_write(fd, MSG_LINE_START);
    }
 
    // send bye and cleanup
-   write(fd, MSG_GOODBYE, strlen(MSG_GOODBYE));
+   vtp_write(fd, MSG_GOODBYE);
    vfs_close(cwd);
    vfs_close(root);
 }

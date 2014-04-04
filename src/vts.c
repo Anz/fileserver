@@ -20,11 +20,6 @@ static void* vtp_worker(void* data)
    vfsn_t *root = worker->root;
    free(data);
    
-   // set timeout time
-   struct timeval timeout = { .tv_sec = 3, .tv_usec = 0 };
-   setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (char*) &timeout, sizeof(struct timeval));
-   setsockopt(sockfd, SOL_SOCKET, SO_SNDTIMEO, (char*) &timeout, sizeof(struct timeval));
-
    vtp_handle(sockfd, root);
    return NULL;
 }
