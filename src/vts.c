@@ -7,11 +7,6 @@
 #include <pthread.h>
 #include <fcntl.h>
 
-struct vtp_worker {
-   pthread_t thread;
-   int fd;
-   vfsn_t *root;
-};
 
 static void* vtp_worker(void* data)
 {
@@ -24,17 +19,28 @@ static void* vtp_worker(void* data)
    return NULL;
 }
 
-static int vtp_socket(int port)
+int vts_init(vtp_socket_t *sock, int port, int max_clients)
 {
+   // init socket
+   memset(sock, 0, sizeof(*sock));
+   sock->workers = calloc(sizeof(struct vtp_worker), max_clients);
+   sock->max_clients = max_clients;
+
+   // check memory allocation
+   if (!sock->workers) {
+      return 1;
+   }
+
    // setup socket
-   int sockfd = socket(AF_INET, SOCK_STREAM, 0);
-   if (sockfd < 0) {
-      return 0;
+   sock->sockfd = socket(AF_INET, SOCK_STREAM, 0);
+   if (sock->sockfd < 0) {
+      vts_release(sock);
+      return 1;
    }
 
    // set reuseable address
    int optvalue = 1;
-   setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &optvalue, sizeof(optvalue));
+   setsockopt(sock->sockfd, SOL_SOCKET, SO_REUSEADDR, &optvalue, sizeof(optvalue));
 
    // setup socket address
    struct sockaddr_in serv_addr = {
@@ -44,86 +50,81 @@ static int vtp_socket(int port)
    };
 
    // bind socket to address
-   if (bind(sockfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) != 0) {
-      return 0;
+   if (bind(sock->sockfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) != 0) {
+      vts_release(sock);
+      return 1;
    }
 
    // start listening
-   if (listen(sockfd, 5)) {
-      return 0;
-   }
-
-   return sockfd;
-}
-
-static int vtp_next_client(int fd)
-{
-   // wait for client with timeout
-   fd_set set;
-   FD_ZERO(&set);
-   FD_SET(fd, &set);
-   struct timeval timeout = { .tv_sec = 3, .tv_usec = 0 };
-   if (select(fd+1, &set, (fd_set*)0, (fd_set*)0, &timeout) <= 0) {
-      return 0;
-   }
-
-   // accept client
-   struct sockaddr_in client_addr;
-   socklen_t len = sizeof(client_addr);
-   return accept(fd, (struct sockaddr*)&client_addr, &len);
-}
-
-int vtp_start(vtp_socket_t* sock, int port, int max_clients)
-{
-   int thread_num = 0;
-   struct vtp_worker workers[max_clients];
-   memset(workers, 0, sizeof(workers));
-
-   // init server socket
-   int sockfd = vtp_socket(port);
-   if (sockfd < 0)
+   if (listen(sock->sockfd, 5)) {
+      vts_release(sock);
       return 1;
+   }
 
    // create filesystem
-   vfsn_t *root = vfs_create(NULL, "/", VFS_DIR);
-   if (!root) {
-      close(sockfd);
+   sock->root = vfs_create(NULL, "/", VFS_DIR);
+   if (!sock->root) {
+      vts_release(sock);
       return 1;
    }
-   *sock = root;
+
+   return 0;
+}
+
+void vts_release(vtp_socket_t *sock)
+{
+   // close server socket
+   close(sock->sockfd);
+
+   // release memory
+   free(sock->workers);
+
+   // delete filesystem
+   vfs_delete(sock->root);
+   vfs_close(sock->root);
+
+   // clear memory
+   memset(sock, 0, sizeof(*sock));
+}
+
+int vtp_start(vtp_socket_t* sock)
+{ 
+   int thread_num = 0;
 
    // server loop until filesystem gets deleted
-   while (!vfs_is_deleted(root)) {
+   while (1) {
       // wait for clients
-      int clientfd = vtp_next_client(sockfd);
-      if (clientfd <= 0) {
-         continue;
+      int clientfd = accept(sock->sockfd, NULL, 0);
+      
+      // server socket closed, shutdown server
+      if (clientfd < 0) {
+         break;
       }
 
       // set client data
-      struct vtp_worker *worker = &workers[thread_num];
+      struct vtp_worker *worker = &sock->workers[thread_num];
       worker->fd = clientfd;
-      worker->root = vfs_open(root);
-      pthread_create(&workers[thread_num].thread, NULL, vtp_worker, worker);
+      worker->root = vfs_open(sock->root);
+      pthread_create(&sock->workers[thread_num].thread, NULL, vtp_worker, worker);
       thread_num++;
    }
 
    // wait for all threads to finish
    for (int i = 0; i < thread_num; i++) {
-      pthread_join(workers[i].thread, NULL);
+      pthread_join(sock->workers[i].thread, NULL);
    }
 
-   // release socket
-   close(sockfd);
-   vfs_close(root);
    return 0;
 }
 
 void vtp_stop(vtp_socket_t* sock)
 {
-   if (!sock || !*sock)
+   if (!sock)
       return;
 
-   vfsn_t *root = *sock;
-   vfs_delete(root);
+   // close all sockets
+   close(sock->sockfd);
+   for (int i = 0; i < sock->max_clients; i++) {
+      close(sock->workers[i].fd);
+   }
 }

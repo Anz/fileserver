@@ -6,7 +6,7 @@
 #include "log.h"
 #include "vts.h"
 
-static vtp_socket_t socket = VTS_SOCKET_INIT;
+static vtp_socket_t socket;
 
 static void print_usage(void)
 {
@@ -35,6 +35,11 @@ int main(int argc, char* argv[])
    if (argc > 2)
       maxclients = atoi(argv[2]);
 
+   // init socket
+   if (vts_init(&socket, port, maxclients)) {
+      return 1;
+   }
+
    // set signal handler
    struct sigaction sighandler;
    sighandler.sa_handler = signal_handler;
@@ -43,5 +48,10 @@ int main(int argc, char* argv[])
    sigaction(SIGINT, &sighandler, NULL);
 
    // start socket
-   return vtp_start(&socket, port, maxclients);
+   int retval = vtp_start(&socket);
+
+   // release socket
+   vts_release(&socket);
+
+   return retval;
 }
