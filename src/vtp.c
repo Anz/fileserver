@@ -257,6 +257,8 @@ static char* vtp_cmd_pwd(int fd, vfsn_t **cwd, int argc, char* argv[])
    char pwd[size];
    memset(pwd, 0, sizeof(pwd));
    char* index = pwd + size - 2;
+   *index = '\n';
+   index--;
 
    vfsn_t *it = vfs_open(*cwd);
    while (it) {
@@ -264,9 +266,19 @@ static char* vtp_cmd_pwd(int fd, vfsn_t **cwd, int argc, char* argv[])
       char name[name_size+1];
       memset(name, 0, sizeof(name));
       vfs_name(it, name, name_size);
+      
+      if (strcmp("/", name) == 0) {
+         if (strcmp("\n", index+1) == 0) {
+            *index = '/';
+            index--;
+         }
+         vfs_close(it);
+         break;
+      }
 
-      index -= name_size;
+      index -= name_size - 1;
       memcpy(index, name, name_size);
+      index--;
       *index = '/';
       index--;
       vfs_parent2(&it);
