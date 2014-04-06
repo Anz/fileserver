@@ -10,11 +10,13 @@
 #define READ_BUFFER_SIZE 512
 
 #define MSG_WELCOME "hello client and welcome to multithreading fileserver"
-#define MSG_GOODBYE "Good bye!\n"
 #define MSG_LINE_START "> "
 #define MSG_FILECREATED "FILECREATED File created\n"
 #define MSG_DIRCREATED "DIRCREATED Directory created\n"
+#define MSG_DELETED "DELETED File/direcotry deleted\n"
+#define MSG_DIRCHANGED "DIRCHANGED Directory changed\n"
 #define ERR_NOSUCHFILE "NOSUCHFILE No such file\n"
+#define ERR_NOSUCHDIR "NOSUCHDIR No such directory\n"
 #define ERR_NOSUCHCMD "NOSUCHCMD No such command\n"
 #define ERR_INVALIDCMD "INVALIDCMD Invalid arguments\n"
 #define ERR_FILEEXISTS "FILEEXISTS File already exists\n"
@@ -155,7 +157,7 @@ static char* vtp_cmd_delete(int fd, vfsn_t **cwd, int argc, char* argv[])
 
    vfs_delete(file);
    vfs_close(file);
-   return NULL;
+   return MSG_DELETED;
 }
 
 static char* vtp_cmd_list(int fd, vfsn_t **cwd, int argc, char* argv[])
@@ -203,7 +205,7 @@ static char* vtp_cmd_read(int fd, vfsn_t **cwd, int argc, char* argv[])
    char content[size];
    vfs_read(file, content, size);
 
-   char format[] = "CONTENT %s %i\n%s\n";
+   char format[] = "FILECONTENT %s %i\n%s\n";
    char msg[strlen(format) + name_size + size + 10];
    memset(msg, 0, sizeof(msg));
    sprintf(msg, format, name, size, content);
@@ -242,10 +244,35 @@ static char* vtp_cmd_cd(int fd, vfsn_t **cwd, int argc, char* argv[])
 {
    vfsn_t *next = vtp_path(*cwd, argv[1]);
    if (!next)
-      return ERR_NOSUCHFILE;
+      return ERR_NOSUCHDIR;
 
    vfs_close(*cwd);
    *cwd = next;
+   return MSG_DIRCHANGED;
+}
+
+static char* vtp_cmd_pwd(int fd, vfsn_t **cwd, int argc, char* argv[])
+{
+   int size = 500;
+   char pwd[size];
+   memset(pwd, 0, sizeof(pwd));
+   char* index = pwd + size - 2;
+
+   vfsn_t *it = vfs_open(*cwd);
+   while (it) {
+      int name_size = vfs_name_size(it);
+      char name[name_size+1];
+      memset(name, 0, sizeof(name));
+      vfs_name(it, name, name_size);
+
+      index -= name_size;
+      memcpy(index, name, name_size);
+      *index = '/';
+      index--;
+      vfs_parent2(&it);
+   }
+   vtp_write(fd, index+1);
+
    return NULL;
 }
 
@@ -268,6 +295,7 @@ static struct vtp_cmd cmds[] = {
    { "cat", 1, vtp_cmd_read },
    { "update", 2, vtp_cmd_update },
    { "cd", 1, vtp_cmd_cd },
+   { "pwd", 0, vtp_cmd_pwd },
    { }
 };
 
