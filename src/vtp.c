@@ -73,6 +73,15 @@ static vfsn_t* vtp_path(vfsn_t *cwd, char* path)
    return node;
 }
 
+static void vtp_args(char* cmd, int *argc, char* argv[])
+{
+      memset(argv, 0, MAX_ARGS);
+      argv[0] = strtok(cmd, " \r\n");
+      for (*argc = 0; (*argc)+1 < MAX_ARGS && argv[*argc]; (*argc)++) {
+         argv[(*argc)+1] = strtok(NULL, " \r\n");
+      }
+}
+
 static int vtp_read_packet(int fd, char *buf, size_t size)
 {
    int len = 0;
@@ -102,12 +111,7 @@ static int vtp_write(int fd, char *msg)
 
 static char* vtp_cmd_create(int fd, vfsn_t **cwd, char* argv[])
 {
-   int len = atoi(argv[2]) + 1;
-   char content[len];
-   memset(content, 0, len);
-   if (vtp_read(fd, content, len) < 0) {
-      return NULL;
-   }
+   int len = atoi(argv[2]);
 
    char* path = argv[1];
    char* file = path;
@@ -119,16 +123,16 @@ static char* vtp_cmd_create(int fd, vfsn_t **cwd, char* argv[])
 
    vfsn_t *parent = vtp_path(*cwd, path);
    vfsn_t *node = vfs_create(parent ? parent : *cwd, file, VFS_FILE);
-   if (node) {
-      vfs_write(node, content, len);
-      write(fd, MSG_FILECREATED, strlen(MSG_FILECREATED));
-   } else {
+   vfs_close(parent);
+
+   if (!node) {
       return ERR_FILEEXISTS;
    }
 
-   vfs_close(parent);
+   printf("wrote %i - %s\n",len,argv[3]);
+   vfs_write(node, argv[3], len);
    vfs_close(node);
-   return NULL;
+   return MSG_FILECREATED;
 }
 
 static char* vtp_cmd_createdir(int fd, vfsn_t **cwd, char* argv[])
@@ -199,7 +203,8 @@ static char* vtp_cmd_read(int fd, vfsn_t **cwd, char* argv[])
    vfs_name(file, name, name_size);
 
    int size = vfs_size(file);
-   char content[size];
+   char content[size+1];
+   memset(content, 0, size);
    vfs_read(file, content, size);
 
    char format[] = "FILECONTENT %s %i\n%s\n";
@@ -216,17 +221,13 @@ static char* vtp_cmd_read(int fd, vfsn_t **cwd, char* argv[])
 static char* vtp_cmd_update(int fd, vfsn_t **cwd, char* argv[])
 {
    int len = atoi(argv[2]);
-   char content[len];
-   if (vtp_read(fd, content, len) < 0) {
-      return NULL;
-   }
 
    vfsn_t *node = vtp_path(*cwd, argv[1]);
    if (!node) {
       return ERR_NOSUCHFILE;
    }
    
-   vfs_write(node, content, len);
+   vfs_write(node, argv[3], len);
    vfs_close(node);
    return MSG_UPDATED;
 }
@@ -288,7 +289,7 @@ static char* vtp_cmd_exit(int fd, vfsn_t **cwd, char* argv[])
 static struct vtp_cmd cmds[] = {
    { "ls", 0, vtp_cmd_list },
    { "list", 0, vtp_cmd_list },
-   { "create", 2, vtp_cmd_create },
+   { "create", 3, vtp_cmd_create },
    { "createdir", 1, vtp_cmd_createdir },
    { "mkdir", 1, vtp_cmd_createdir },
    { "delete", 1, vtp_cmd_delete },
@@ -296,7 +297,7 @@ static struct vtp_cmd cmds[] = {
    { "exit", 0, vtp_cmd_exit },
    { "read", 1, vtp_cmd_read },
    { "cat", 1, vtp_cmd_read },
-   { "update", 2, vtp_cmd_update },
+   { "update", 3, vtp_cmd_update },
    { "cd", 1, vtp_cmd_cd },
    { "pwd", 0, vtp_cmd_pwd },
    { }
@@ -330,13 +331,9 @@ void vtp_handle(int fd, vfsn_t *cwd)
       }
 
       // parse command arguments
-      int argi;
+      int argc;
       char* argv[MAX_ARGS];
-      memset(argv, 0, sizeof(argv));
-      argv[0] = strtok(buf, " \r\n");
-      for (argi = 1; argi < MAX_ARGS && argv[argi-1]; argi++) {
-         argv[argi] = strtok(NULL, " \r\n");
-      }
+      vtp_args(buf, &argc, argv);
 
       // get command from name
       struct vtp_cmd *cmd = vtp_get_cmd(argv[0], len-2);
@@ -348,15 +345,31 @@ void vtp_handle(int fd, vfsn_t *cwd)
          continue;
       }
 
+      // read additionl fourth argument
+      if (argv[2] && argc == 3 && cmd->args == 3) {
+         int content_size = atoi(argv[2]);
+         argv[3] = malloc(content_size+1);
+         memset(argv[3], 0, content_size+1);
+         if (vtp_read(fd, argv[3], content_size) < 0) {
+            break;
+         }
+         argc++;
+      }
+
       // check number of arguments
-      if (cmd->args + 1 > argi) {
+      if (cmd->args + 1 > argc) {
          vtp_write(fd, ERR_INVALIDCMD);
          vtp_write(fd, MSG_LINE_START);
          continue;
       }
     
-      // print msg
+      // execute command
       char *msg = cmd->func(fd, &cwd, argv);
+      if (cmd->args == 3) {
+         free(argv[3]);
+      }
+
+      // print msg
       if (msg) {
          vtp_write(fd, msg);
       }
