@@ -14,6 +14,7 @@
 #define MSG_FILECREATED "FILECREATED File created\n"
 #define MSG_DIRCREATED "DIRCREATED Directory created\n"
 #define MSG_DELETED "DELETED File/direcotry deleted\n"
+#define MSG_UPDATED "UPDATED File updated\n"
 #define MSG_DIRCHANGED "DIRCHANGED Directory changed\n"
 #define ERR_NOSUCHFILE "NOSUCHFILE No such file\n"
 #define ERR_NOSUCHDIR "NOSUCHDIR No such directory\n"
@@ -218,10 +219,6 @@ static char* vtp_cmd_read(int fd, vfsn_t **cwd, int argc, char* argv[])
 
 static char* vtp_cmd_update(int fd, vfsn_t **cwd, int argc, char* argv[])
 {
-   if (argc < 3) {
-      return ERR_INVALIDCMD;
-   }
-
    int len = atoi(argv[2]);
    char content[len];
    if (vtp_read(fd, content, len) < 0) {
@@ -229,15 +226,13 @@ static char* vtp_cmd_update(int fd, vfsn_t **cwd, int argc, char* argv[])
    }
 
    vfsn_t *node = vtp_path(*cwd, argv[1]);
-   if (node) {
-      vfs_write(node, content, len);
-      write(fd, MSG_FILECREATED, strlen(MSG_FILECREATED));
-   } else {
-      write(fd, ERR_FILEEXISTS, strlen(ERR_FILEEXISTS));
+   if (!node) {
+      return ERR_NOSUCHFILE;
    }
-
+   
+   vfs_write(node, content, len);
    vfs_close(node);
-   return NULL;
+   return MSG_UPDATED;
 }
 
 static char* vtp_cmd_cd(int fd, vfsn_t **cwd, int argc, char* argv[])
