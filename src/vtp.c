@@ -22,7 +22,7 @@
 struct vtp_cmd {
    char* name;
    int args;
-   char* (*func)(int fd, vfsn_t *root, vfsn_t **cwd, int argc, char* argv[]);
+   char* (*func)(int fd, vfsn_t **cwd, int argc, char* argv[]);
 };
 
 static void vtp_pathpart(vfsn_t **node, char* path)
@@ -49,8 +49,14 @@ static void vtp_pathpart(vfsn_t **node, char* path)
 
 static vfsn_t* vtp_path(vfsn_t *cwd, char* path)
 {
-   char *pathtok = strtok(path, "/");
    vfsn_t *node = vfs_open(cwd);
+
+   // absolute path
+   if (path[0] == '/') {
+      vfs_root(&node);
+   }
+
+   char *pathtok = strtok(path, "/");
    while (node && pathtok) {
       vtp_pathpart(&node, pathtok);
       pathtok = strtok(NULL, "/");
@@ -72,17 +78,6 @@ static int vtp_read_packet(int fd, char *buf, size_t size)
 
 static int vtp_read(int fd, char *buf, size_t size)
 {
-   /*int current = 0;
-   while (current < size) {
-      if (vfs_is_deleted(root))
-         return 1;
-
-      int len = read(fd, buf + current, size - current);
-      if (len > 0)
-         current += len;
-   }
-   return 0;*/
-
    int len = 0;
    while (len <= 0) {
       if (fcntl(fd, F_GETFL) == -1) 
@@ -97,7 +92,7 @@ static int vtp_write(int fd, char *msg)
    return send(fd, msg, strlen(msg), MSG_NOSIGNAL|MSG_DONTWAIT);
 }
 
-static char* vtp_cmd_create(int fd, vfsn_t *root, vfsn_t **cwd, int argc, char* argv[])
+static char* vtp_cmd_create(int fd, vfsn_t **cwd, int argc, char* argv[])
 {
    int len = atoi(argv[2]) + 1;
    char content[len];
@@ -128,7 +123,7 @@ static char* vtp_cmd_create(int fd, vfsn_t *root, vfsn_t **cwd, int argc, char* 
    return NULL;
 }
 
-static char* vtp_cmd_createdir(int fd, vfsn_t *root, vfsn_t **cwd, int argc, char* argv[])
+static char* vtp_cmd_createdir(int fd, vfsn_t **cwd, int argc, char* argv[])
 {
    char* path = argv[1];
    char* file = path;
@@ -151,7 +146,7 @@ static char* vtp_cmd_createdir(int fd, vfsn_t *root, vfsn_t **cwd, int argc, cha
    return NULL;
 }
 
-static char* vtp_cmd_delete(int fd, vfsn_t *root, vfsn_t **cwd, int argc, char* argv[])
+static char* vtp_cmd_delete(int fd, vfsn_t **cwd, int argc, char* argv[])
 {
    vfsn_t *file = vtp_path(*cwd, argv[1]);
    if (!file) {
@@ -163,7 +158,7 @@ static char* vtp_cmd_delete(int fd, vfsn_t *root, vfsn_t **cwd, int argc, char* 
    return NULL;
 }
 
-static char* vtp_cmd_list(int fd, vfsn_t *root, vfsn_t **cwd, int argc, char* argv[])
+static char* vtp_cmd_list(int fd, vfsn_t **cwd, int argc, char* argv[])
 {
    vfsn_t *it;
    if (argc > 1) {
@@ -177,16 +172,18 @@ static char* vtp_cmd_list(int fd, vfsn_t *root, vfsn_t **cwd, int argc, char* ar
 
    vfs_child2(&it);
    while (it) {
-      char name[256];
-      vfs_name(it, name, 256);
+      int name_size = vfs_name_size(it);
+      char name[name_size+2];
+      memset(name, 0, sizeof(name));
+      name[name_size] = '\n';
+      vfs_name(it, name, name_size);
       write(fd, name, strlen(name));
-      write(fd, "\n", 1);
       vfs_next2(&it);
    }
    return NULL;
 }
 
-static char* vtp_cmd_read(int fd, vfsn_t *root, vfsn_t **cwd, int argc, char* argv[])
+static char* vtp_cmd_read(int fd, vfsn_t **cwd, int argc, char* argv[])
 {
    if (argc < 2) {
       return ERR_INVALIDCMD;
@@ -197,16 +194,27 @@ static char* vtp_cmd_read(int fd, vfsn_t *root, vfsn_t **cwd, int argc, char* ar
       return ERR_NOSUCHFILE;
    }
 
+   int name_size = vfs_name_size(file);
+   char name[name_size+1];
+   memset(name, 0, sizeof(name));
+   vfs_name(file, name, name_size);
+
    int size = vfs_size(file);
    char content[size];
    vfs_read(file, content, size);
-   write(fd, content, size);
-   write(fd, "\n", 1);
+
+   char format[] = "CONTENT %s %i\n%s\n";
+   char msg[strlen(format) + name_size + size + 10];
+   memset(msg, 0, sizeof(msg));
+   sprintf(msg, format, name, size, content);
+   
+   vtp_write(fd, msg);
+
    vfs_close(file);
    return NULL;
 }
 
-static char* vtp_cmd_update(int fd, vfsn_t *root, vfsn_t **cwd, int argc, char* argv[])
+static char* vtp_cmd_update(int fd, vfsn_t **cwd, int argc, char* argv[])
 {
    if (argc < 3) {
       return ERR_INVALIDCMD;
@@ -230,7 +238,7 @@ static char* vtp_cmd_update(int fd, vfsn_t *root, vfsn_t **cwd, int argc, char* 
    return NULL;
 }
 
-static char* vtp_cmd_cd(int fd, vfsn_t *root, vfsn_t **cwd, int argc, char* argv[])
+static char* vtp_cmd_cd(int fd, vfsn_t **cwd, int argc, char* argv[])
 {
    vfsn_t *next = vtp_path(*cwd, argv[1]);
    if (!next)
@@ -241,7 +249,7 @@ static char* vtp_cmd_cd(int fd, vfsn_t *root, vfsn_t **cwd, int argc, char* argv
    return NULL;
 }
 
-static char* vtp_cmd_exit(int fd, vfsn_t *root, vfsn_t **cwd, int argc, char* argv[])
+static char* vtp_cmd_exit(int fd, vfsn_t **cwd, int argc, char* argv[])
 {
    close(fd);
    return NULL;
@@ -272,11 +280,8 @@ static struct vtp_cmd* vtp_get_cmd(char *name, size_t len)
    return NULL;
 }
 
-void vtp_handle(int fd, vfsn_t *root)
+void vtp_handle(int fd, vfsn_t *cwd)
 {
-   // node to current working directory
-   vfsn_t *cwd = vfs_open(root);
-
    char buf[READ_BUFFER_SIZE];
 
    // send welcome
@@ -296,10 +301,10 @@ void vtp_handle(int fd, vfsn_t *root)
       // parse command arguments
       int argi = 0;
       char* argv[4];
-      argv[0] = strtok(buf, " \n");
+      argv[0] = strtok(buf, " \r\n");
       while (argi < 4 && argv[argi]) {
          argi++;
-         argv[argi] = strtok(NULL, " \n");
+         argv[argi] = strtok(NULL, " \r\n");
       }
 
       // get command from name
@@ -319,7 +324,7 @@ void vtp_handle(int fd, vfsn_t *root)
          continue;
       }
     
-      char *errmsg = cmd->func(fd, root, &cwd, argi, argv);
+      char *errmsg = cmd->func(fd, &cwd, argi, argv);
       if (errmsg) {
          vtp_write(fd, errmsg);
       }
@@ -329,5 +334,4 @@ void vtp_handle(int fd, vfsn_t *root)
 
    // cleanup
    vfs_close(cwd);
-   vfs_close(root);
 }

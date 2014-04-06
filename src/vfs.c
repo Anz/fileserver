@@ -212,6 +212,13 @@ void vfs_name(vfsn_t *node, char* str, size_t len)
    VFS_SAFE_READ(node, strncpy(str, node->name, len));
 }
 
+int vfs_name_size(vfsn_t *node)
+{
+   int size;
+   VFS_SAFE_READ(node, size = strlen(node->name));
+   return size;
+}
+
 int vfs_is_file(vfsn_t* node)
 {
    return vfs_flag_checked(node, VFS_FILE);

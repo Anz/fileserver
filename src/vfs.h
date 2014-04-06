@@ -23,6 +23,7 @@ size_t vfs_read(vfsn_t *node, void *data, size_t size);
 int vfs_write(vfsn_t *node, void *data, size_t size);
 void vfs_close(vfsn_t *node);
 void vfs_name(vfsn_t *node, char* str, size_t len);
+int vfs_name_size(vfsn_t *node);
 int vfs_is_file(vfsn_t *node);
 int vfs_is_dir(vfsn_t *node);
 int vfs_is_deleted(vfsn_t *node);
