@@ -8,6 +8,7 @@
 #include <fcntl.h>
 
 #define READ_BUFFER_SIZE 512
+#define MAX_ARGS 5
 
 #define MSG_WELCOME "hello client and welcome to multithreading fileserver"
 #define MSG_LINE_START "> "
@@ -25,7 +26,7 @@
 struct vtp_cmd {
    char* name;
    int args;
-   char* (*func)(int fd, vfsn_t **cwd, int argc, char* argv[]);
+   char* (*func)(int fd, vfsn_t **cwd, char* argv[]);
 };
 
 static void vtp_pathpart(vfsn_t **node, char* path)
@@ -53,6 +54,10 @@ static void vtp_pathpart(vfsn_t **node, char* path)
 static vfsn_t* vtp_path(vfsn_t *cwd, char* path)
 {
    vfsn_t *node = vfs_open(cwd);
+
+   if (!path || strcmp("", path) == 0) {
+      return node;
+   }
 
    // absolute path
    if (path[0] == '/') {
@@ -95,7 +100,7 @@ static int vtp_write(int fd, char *msg)
    return send(fd, msg, strlen(msg), MSG_NOSIGNAL|MSG_DONTWAIT);
 }
 
-static char* vtp_cmd_create(int fd, vfsn_t **cwd, int argc, char* argv[])
+static char* vtp_cmd_create(int fd, vfsn_t **cwd, char* argv[])
 {
    int len = atoi(argv[2]) + 1;
    char content[len];
@@ -126,7 +131,7 @@ static char* vtp_cmd_create(int fd, vfsn_t **cwd, int argc, char* argv[])
    return NULL;
 }
 
-static char* vtp_cmd_createdir(int fd, vfsn_t **cwd, int argc, char* argv[])
+static char* vtp_cmd_createdir(int fd, vfsn_t **cwd, char* argv[])
 {
    char* path = argv[1];
    char* file = path;
@@ -149,7 +154,7 @@ static char* vtp_cmd_createdir(int fd, vfsn_t **cwd, int argc, char* argv[])
    return NULL;
 }
 
-static char* vtp_cmd_delete(int fd, vfsn_t **cwd, int argc, char* argv[])
+static char* vtp_cmd_delete(int fd, vfsn_t **cwd, char* argv[])
 {
    vfsn_t *file = vtp_path(*cwd, argv[1]);
    if (!file) {
@@ -161,14 +166,9 @@ static char* vtp_cmd_delete(int fd, vfsn_t **cwd, int argc, char* argv[])
    return MSG_DELETED;
 }
 
-static char* vtp_cmd_list(int fd, vfsn_t **cwd, int argc, char* argv[])
+static char* vtp_cmd_list(int fd, vfsn_t **cwd, char* argv[])
 {
-   vfsn_t *it;
-   if (argc > 1) {
-      it = vtp_path(*cwd, argv[1]);
-   } else {
-      it = vfs_open(*cwd);
-   }
+   vfsn_t *it = vtp_path(*cwd, argv[1]);
 
    if (!it)
       return ERR_NOSUCHFILE;
@@ -186,12 +186,8 @@ static char* vtp_cmd_list(int fd, vfsn_t **cwd, int argc, char* argv[])
    return NULL;
 }
 
-static char* vtp_cmd_read(int fd, vfsn_t **cwd, int argc, char* argv[])
+static char* vtp_cmd_read(int fd, vfsn_t **cwd, char* argv[])
 {
-   if (argc < 2) {
-      return ERR_INVALIDCMD;
-   }
-
    vfsn_t *file = vtp_path(*cwd, argv[1]);
    if (!file) {
       return ERR_NOSUCHFILE;
@@ -217,7 +213,7 @@ static char* vtp_cmd_read(int fd, vfsn_t **cwd, int argc, char* argv[])
    return NULL;
 }
 
-static char* vtp_cmd_update(int fd, vfsn_t **cwd, int argc, char* argv[])
+static char* vtp_cmd_update(int fd, vfsn_t **cwd, char* argv[])
 {
    int len = atoi(argv[2]);
    char content[len];
@@ -235,7 +231,7 @@ static char* vtp_cmd_update(int fd, vfsn_t **cwd, int argc, char* argv[])
    return MSG_UPDATED;
 }
 
-static char* vtp_cmd_cd(int fd, vfsn_t **cwd, int argc, char* argv[])
+static char* vtp_cmd_cd(int fd, vfsn_t **cwd, char* argv[])
 {
    vfsn_t *next = vtp_path(*cwd, argv[1]);
    if (!next)
@@ -246,7 +242,7 @@ static char* vtp_cmd_cd(int fd, vfsn_t **cwd, int argc, char* argv[])
    return MSG_DIRCHANGED;
 }
 
-static char* vtp_cmd_pwd(int fd, vfsn_t **cwd, int argc, char* argv[])
+static char* vtp_cmd_pwd(int fd, vfsn_t **cwd, char* argv[])
 {
    int size = 500;
    char pwd[size];
@@ -283,7 +279,7 @@ static char* vtp_cmd_pwd(int fd, vfsn_t **cwd, int argc, char* argv[])
    return NULL;
 }
 
-static char* vtp_cmd_exit(int fd, vfsn_t **cwd, int argc, char* argv[])
+static char* vtp_cmd_exit(int fd, vfsn_t **cwd, char* argv[])
 {
    close(fd);
    return NULL;
@@ -334,11 +330,11 @@ void vtp_handle(int fd, vfsn_t *cwd)
       }
 
       // parse command arguments
-      int argi = 0;
-      char* argv[4];
+      int argi;
+      char* argv[MAX_ARGS];
+      memset(argv, 0, sizeof(argv));
       argv[0] = strtok(buf, " \r\n");
-      while (argi < 4 && argv[argi]) {
-         argi++;
+      for (argi = 1; argi < MAX_ARGS && argv[argi-1]; argi++) {
          argv[argi] = strtok(NULL, " \r\n");
       }
 
@@ -359,11 +355,13 @@ void vtp_handle(int fd, vfsn_t *cwd)
          continue;
       }
     
-      char *errmsg = cmd->func(fd, &cwd, argi, argv);
-      if (errmsg) {
-         vtp_write(fd, errmsg);
+      // print msg
+      char *msg = cmd->func(fd, &cwd, argv);
+      if (msg) {
+         vtp_write(fd, msg);
       }
 
+      // write line start
       vtp_write(fd, MSG_LINE_START);
    }
 
