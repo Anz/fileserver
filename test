@@ -1,7 +1,74 @@
 #!/usr/bin/python
+#
+# Copyright (C) 2014 Roger Knecht
+# License: http://www.gnu.org/licenses/gpl.html GPL version 2 or higher
+#
 
 import sys
+import select
 import socket
+from threading import Thread
+
+workers = [
+   # worker 1
+   [
+      "mkdir test",
+      "create test/names 20",
+      "jack\njohn\npete\nsepp\n",
+      "read test/names",
+      "exit"
+   ],
+
+   # worker 2
+   [
+      "mkdir alphabet",
+      "pwd"
+      "cd alphabet",
+      "pwd"
+      "mkdir a",
+      "mkdir b",
+      "mkdir c",
+      "mkdir d",
+      "exit",
+   ],
+
+   # worker 3
+   [
+      "create notice 0",
+      "update notice 1",
+      "a", 
+      "update notice 2",
+      "ab",
+      "update test/names 10",
+      "black\njack\n",
+      #"rm alphabet/c",
+      "exit",
+   ],
+]
+
+
+def read(sock):
+   if select.select([sock], [], [], 2)[0]:
+      return sock.recv(4096)
+   return ""
+   
+
+def client(cmds):
+   # connect to server
+   sock = socket.socket();
+   sock.connect((socket.gethostname(), port));
+   #sock.setblocking(0)
+
+   # execute commands
+   for cmd in cmds:
+      #sys.stdout.write(read(sock))
+      read(sock)
+      sock.send(cmd);
+      #print cmd
+
+
+   # close connection
+   sock.close
 
 port = 8000
 if len(sys.argv) > 1:
@@ -9,11 +76,18 @@ if len(sys.argv) > 1:
 
 print "port ", port
 
-sock = socket.socket();
-sock.connect((socket.gethostname(), port));
-print sock.recv(1024);
-sock.send("mkdir test\0\0");
-print sock.recv(1024);
-sock.send("mkdir test/abc\0\0");
-print sock.recv(1024);
-sock.close
+# start threads
+threads = []
+threadi = 1
+for worker in workers:
+   print "start thread number ", threadi
+   t = Thread(target=client, args=(worker,));
+   t.start()
+   threads.append(t)
+   threadi += 1
+
+# wait for all threads to finish
+for t in threads:
+   t.join()
+
+
