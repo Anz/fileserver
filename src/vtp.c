@@ -381,6 +381,7 @@ static struct vtp_cmd* vtp_get_cmd(char *name, size_t len)
 void vtp_handle(int fd, vfsn_t *cwd)
 {
    char buf[READ_BUFFER_SIZE];
+   char *data = NULL;
 
    // send welcome
    vtp_write(fd, "%s\n%s", MSG_WELCOME, MSG_LINE_START);
@@ -419,12 +420,13 @@ void vtp_handle(int fd, vfsn_t *cwd)
       if (argv[2] && argc == 3 && cmd->args == 3) {
          int content_size = atoi(argv[2]);
          if (content_size > 0) {
-            argv[3] = malloc(content_size+1);
-            memset(argv[3], 0, content_size+1);
-            if (vtp_read(fd, argv[3], content_size) < 0) {
+            data = malloc(content_size+1);
+            memset(data, 0, content_size+1);
+            if (vtp_read(fd, data, content_size) < 0) {
                break;
             }
          }
+         argv[3] = data;
          argc++;
       }
 
@@ -436,8 +438,9 @@ void vtp_handle(int fd, vfsn_t *cwd)
     
       // execute command
       char *msg = cmd->func(fd, &cwd, argv);
-      if (cmd->args == 3) {
-         free(argv[3]);
+      if (data) {
+         free(data);
+         data = NULL;
       }
 
       // print msg
@@ -450,5 +453,9 @@ void vtp_handle(int fd, vfsn_t *cwd)
    }
 
    // cleanup
+   if (data) {
+      free(data);
+      data = NULL;
+   }
    vfs_close(cwd);
 }
