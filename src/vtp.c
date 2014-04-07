@@ -295,8 +295,10 @@ static char* vtp_cmd_update(int fd, vfsn_t **cwd, char* argv[])
 static char* vtp_cmd_cd(int fd, vfsn_t **cwd, char* argv[])
 {
    vfsn_t *next = vtp_path(*cwd, argv[1]);
-   if (!next)
+   if (!next || vfs_is_file(next)) {
+      vfs_close(next);
       return ERR_NOSUCHDIR;
+   }
 
    vfs_close(*cwd);
    *cwd = next;

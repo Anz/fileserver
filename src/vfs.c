@@ -48,6 +48,9 @@ static int vfs_attach(vfsn_t *parent, vfsn_t *child)
       return 0;
    }
 
+   if (vfs_is_file(parent))
+      return 1;
+
    int retval = 0;
    VFS_SAFE_WRITE(parent,
       child->root = parent->root;
