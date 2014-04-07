@@ -84,7 +84,11 @@ static int vfs_attach(vfsn_t *parent, vfsn_t *child)
 static void vfs_detach(vfsn_t* node)
 {
    // open handles
-   vfsn_t *prev = vfs_prev(node), *next = vfs_next(node), *parent = prev ? NULL : vfs_parent(node);
+   vfsn_t *prev = vfs_open(node), *next = vfs_open(node), *parent = prev ? NULL : vfs_open(node);
+   vfs_prev(&prev);
+   vfs_next(&next);
+   vfs_parent(&parent);
+
    // lock in order parent, prev, node, next to prevent dead locks!
    VFS_SAFE4(VFS_WRITE, parent, prev, node, next,
       node->root = NULL;
@@ -109,7 +113,6 @@ static void vfs_detach(vfsn_t* node)
    vfs_close(prev);
    vfs_close(next);
 }
-
 ///////////////////////////////////////////////////////////////////////////////
 // GLOBAL FUNCTIONS
 ///////////////////////////////////////////////////////////////////////////////
@@ -149,17 +152,19 @@ void vfs_delete(vfsn_t *node)
 
    VFS_SAFE_READ(node, log_dbg("Delete node '%s'", node->name));
    vfs_flag_set(node, VFS_DEL);
-   vfsn_t *it = vfs_child(node);
-   vfsn_t *prev = NULL;
-   while (it != NULL) {
+   vfsn_t *it = vfs_open(node);
+   vfs_child(&it);
+   vfsn_t *prev = vfs_open(it);
+   while (it) {
+      vfs_next(&it);
       vfs_delete(prev);
       vfs_close(prev);
-      prev = it;
-      it = vfs_next(it);
+      prev = vfs_open(it);
    }
    vfs_delete(prev);
    vfs_close(prev);
    vfs_detach(node);
+
 }
 
 size_t vfs_read(vfsn_t *node, void *data, size_t size) {
@@ -243,92 +248,58 @@ int vfs_size(vfsn_t *node)
    return size;
 }
 
-vfsn_t* vfs_parent(vfsn_t *node) 
-{
-   if (!node)
-      return NULL;
 
-   vfsn_t* parent = NULL;
-   VFS_SAFE_READ(node, parent = vfs_open(node->parent))
-   return parent;
-}
-
-vfsn_t* vfs_child(vfsn_t *node)
-{
-   if (!node)
-      return NULL;
-
-   vfsn_t* child = NULL;
-   VFS_SAFE_READ(node, child = vfs_open(node->child))
-   return child;
-}
-
-vfsn_t* vfs_prev(vfsn_t *node)
-{
-   if (!node)
-      return NULL;
-
-   vfsn_t* prev = NULL;
-   VFS_SAFE_READ(node, prev = vfs_open(node->sil_prev))
-   return prev;
-}
-
-vfsn_t* vfs_next(vfsn_t *node)
-{
-   if (!node)
-      return NULL;
-
-   vfsn_t* next = NULL;
-   VFS_SAFE_READ(node, next = vfs_open(node->sil_next))
-   return next;
-}
-
-void vfs_parent2(vfsn_t **node)
+vfsn_t* vfs_parent(vfsn_t **node)
 {
    if (!node || !*node)
-      return;
+      return NULL;
 
    vfsn_t *current = *node;
    VFS_SAFE_READ(current, *node = vfs_open(current->parent));
    vfs_close(current);
+   return *node;
 }
 
-void vfs_child2(vfsn_t **node)
+vfsn_t* vfs_child(vfsn_t **node)
 {
    if (!node || !*node)
-      return;
+      return NULL;
 
    vfsn_t *current = *node;
    VFS_SAFE_READ(current, *node = vfs_open(current->child));
    vfs_close(current);
+   return *node;
 }
 
-void vfs_prev2(vfsn_t **node)
+vfsn_t* vfs_prev(vfsn_t **node)
 {
    if (!node || !*node)
-      return;
+      return NULL;
 
    vfsn_t *current = *node;
    VFS_SAFE_READ(current, *node = vfs_open(current->sil_prev));
    vfs_close(current);
+   return *node;
 }
 
-void vfs_next2(vfsn_t **node)
+vfsn_t* vfs_next(vfsn_t **node)
 {
    if (!node || !*node)
-      return;
+      return NULL;
 
    vfsn_t *current = *node;
    VFS_SAFE_READ(current, *node = vfs_open(current->sil_next));
    vfs_close(current);
+   return *node;
 }
 
-void vfs_root(vfsn_t **node)
+vfsn_t* vfs_root(vfsn_t **node)
 {
    if (!node || !*node)
-      return;
+      return NULL;
 
    vfsn_t *current = *node;
    VFS_SAFE_READ(current, *node = vfs_open(current->root));
    vfs_close(current);
+   return *node;
 }

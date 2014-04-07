@@ -37,18 +37,18 @@ static void vtp_pathpart(vfsn_t **node, char* path)
    }
 
    if (strcmp("..", path) == 0) {
-      vfs_parent2(node);
+      vfs_parent(node);
       return;
    } 
   
-   vfs_child2(node); 
+   vfs_child(node); 
    while (*node) {
       char name[256];
       vfs_name(*node, name, 256);
       if (strcmp(name, path) == 0) { 
          break;   
       }
-      vfs_next2(node);
+      vfs_next(node);
    }
 }
 
@@ -222,7 +222,7 @@ static char* vtp_cmd_list(int fd, vfsn_t **cwd, char* argv[])
    if (!it)
       return ERR_NOSUCHFILE;
 
-   vfs_child2(&it);
+   vfs_child(&it);
    while (it) {
       int name_size = vfs_name_size(it);
       char name[name_size+2];
@@ -230,7 +230,7 @@ static char* vtp_cmd_list(int fd, vfsn_t **cwd, char* argv[])
       name[name_size] = '\n';
       vfs_name(it, name, name_size);
       write(fd, name, strlen(name));
-      vfs_next2(&it);
+      vfs_next(&it);
    }
    return NULL;
 }
@@ -318,7 +318,7 @@ static char* vtp_cmd_pwd(int fd, vfsn_t **cwd, char* argv[])
       index--;
       *index = '/';
       index--;
-      vfs_parent2(&it);
+      vfs_parent(&it);
    }
    vtp_write(fd, index+1);
 

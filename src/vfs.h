@@ -28,15 +28,10 @@ int vfs_is_file(vfsn_t *node);
 int vfs_is_dir(vfsn_t *node);
 int vfs_is_deleted(vfsn_t *node);
 int vfs_size(vfsn_t *node);
-vfsn_t* vfs_parent(vfsn_t *node);
-vfsn_t* vfs_child(vfsn_t *node);
-vfsn_t* vfs_prev(vfsn_t *node);
-vfsn_t* vfs_next(vfsn_t *node);
-
-void vfs_parent2(vfsn_t **node);
-void vfs_child2(vfsn_t **node);
-void vfs_prev2(vfsn_t **node);
-void vfs_next2(vfsn_t **node);
-void vfs_root(vfsn_t **node);
+vfsn_t* vfs_parent(vfsn_t **node);
+vfsn_t* vfs_child(vfsn_t **node);
+vfsn_t* vfs_prev(vfsn_t **node);
+vfsn_t* vfs_next(vfsn_t **node);
+vfsn_t* vfs_root(vfsn_t **node);
 
 #endif
