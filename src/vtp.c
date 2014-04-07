@@ -109,13 +109,15 @@ static int vtp_read_packet(int fd, char *buf, size_t size)
 
 static int vtp_read(int fd, char *buf, size_t size)
 {
-   int len = 0;
-   while (len <= 0) {
+   int total = 0;
+   while (total < size) {
       if (fcntl(fd, F_GETFL) == -1) 
          return -1;
-      len = recv(fd, buf, size, MSG_DONTWAIT|MSG_WAITALL);
+      int len = recv(fd, buf+total, size-total, MSG_DONTWAIT);
+      if (len > 0)
+         total += len;
    }
-   return len;
+   return total;
 }
 
 static int vtp_write(int fd, char *fmt, ...)
