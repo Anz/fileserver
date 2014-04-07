@@ -184,7 +184,7 @@ static char* vtp_cmd_createdir(int fd, vfsn_t **cwd, char* argv[])
 {
    char* path = argv[1];
    char* file = path;
-   char* last_slash = strrchr(path, '/');
+   char* last_slash = strrchr(argv[1], '/');
    if (last_slash) {
       *last_slash = '\0';
       file = last_slash + 1;
