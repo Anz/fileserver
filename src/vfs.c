@@ -1,3 +1,7 @@
+/*
+* Copyright (C) 2014 Roger Knecht
+* License: http://www.gnu.org/licenses/gpl.html GPL version 2 or higher
+*/
 #include "vfs.h"
 #include "log.h"
 #include <stdlib.h>
@@ -113,6 +117,7 @@ static void vfs_detach(vfsn_t* node)
    vfs_close(prev);
    vfs_close(next);
 }
+
 ///////////////////////////////////////////////////////////////////////////////
 // GLOBAL FUNCTIONS
 ///////////////////////////////////////////////////////////////////////////////

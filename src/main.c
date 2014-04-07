@@ -1,3 +1,7 @@
+/*
+* Copyright (C) 2014 Roger Knecht
+* License: http://www.gnu.org/licenses/gpl.html GPL version 2 or higher
+*/
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>

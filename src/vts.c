@@ -1,3 +1,7 @@
+/*
+* Copyright (C) 2014 Roger Knecht
+* License: http://www.gnu.org/licenses/gpl.html GPL version 2 or higher
+*/
 #include "vts.h"
 #include "vtp.h"
 #include <unistd.h>
@@ -8,6 +12,9 @@
 #include <fcntl.h>
 
 
+///////////////////////////////////////////////////////////////////////////////
+// LOCAL FUNCTIONS
+///////////////////////////////////////////////////////////////////////////////
 static void* vts_worker(void* data)
 {
    struct vts_worker *worker = (struct vts_worker*)data;
@@ -22,6 +29,9 @@ static void* vts_worker(void* data)
    return NULL;
 }
 
+///////////////////////////////////////////////////////////////////////////////
+// GLOBAL FUNCTIONS
+///////////////////////////////////////////////////////////////////////////////
 int vts_init(vts_socket_t *sock, int port, int max_clients)
 {
    // init socket
