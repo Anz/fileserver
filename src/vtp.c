@@ -6,22 +6,23 @@
 #include <netinet/in.h>
 #include <pthread.h>
 #include <fcntl.h>
+#include <stdarg.h>
 
 #define READ_BUFFER_SIZE 512
 #define MAX_ARGS 5
 
 #define MSG_WELCOME "hello client and welcome to multithreading fileserver"
 #define MSG_LINE_START "> "
-#define MSG_FILECREATED "FILECREATED File created\n"
-#define MSG_DIRCREATED "DIRCREATED Directory created\n"
-#define MSG_DELETED "DELETED File/direcotry deleted\n"
-#define MSG_UPDATED "UPDATED File updated\n"
-#define MSG_DIRCHANGED "DIRCHANGED Directory changed\n"
-#define ERR_NOSUCHFILE "NOSUCHFILE No such file\n"
-#define ERR_NOSUCHDIR "NOSUCHDIR No such directory\n"
-#define ERR_NOSUCHCMD "NOSUCHCMD No such command\n"
-#define ERR_INVALIDCMD "INVALIDCMD Invalid arguments\n"
-#define ERR_FILEEXISTS "FILEEXISTS File already exists\n"
+#define MSG_FILECREATED "FILECREATED File created"
+#define MSG_DIRCREATED "DIRCREATED Directory created"
+#define MSG_DELETED "DELETED File/direcotry deleted"
+#define MSG_UPDATED "UPDATED File updated"
+#define MSG_DIRCHANGED "DIRCHANGED Directory changed"
+#define ERR_NOSUCHFILE "NOSUCHFILE No such file"
+#define ERR_NOSUCHDIR "NOSUCHDIR No such directory"
+#define ERR_NOSUCHCMD "NOSUCHCMD No such command"
+#define ERR_INVALIDCMD "INVALIDCMD Invalid arguments"
+#define ERR_FILEEXISTS "FILEEXISTS File already exists"
 
 struct vtp_cmd {
    char* name;
@@ -104,9 +105,52 @@ static int vtp_read(int fd, char *buf, size_t size)
    return len;
 }
 
-static int vtp_write(int fd, char *msg)
+static int vtp_write(int fd, char *fmt, ...)
 {
-   return send(fd, msg, strlen(msg), MSG_NOSIGNAL|MSG_DONTWAIT);
+   int totallen = strlen(fmt);
+   va_list ap;
+
+   // calculate buffer size
+   char *index = fmt;
+   int format = 0;
+   va_start(ap, fmt);
+   while (*index) {
+      char *str;
+      switch (*index) {
+         case '%':
+            format = !format;
+            break;
+ 
+         case 'l':
+         case 'i':
+            if (format) {
+               va_arg(ap, int);
+               totallen += 50;
+               format = 0;
+            }
+            break;
+ 
+         case 's': 
+            if (format) {
+               str = va_arg(ap, char*);
+               totallen += format ? strlen(str) : 0;
+               format = 0;
+            }
+            break;
+      }
+      index++;
+   }
+   va_end(ap);
+
+   // format
+   char buffer[totallen];
+   memset(buffer, 0, sizeof(buffer));
+   va_start(ap, fmt);
+   vsprintf(buffer, fmt, ap);
+   va_end(ap);
+
+   // send msg
+   return send(fd, buffer, totallen, MSG_NOSIGNAL|MSG_DONTWAIT);
 }
 
 static char* vtp_cmd_create(int fd, vfsn_t **cwd, char* argv[])
@@ -119,6 +163,8 @@ static char* vtp_cmd_create(int fd, vfsn_t **cwd, char* argv[])
    if (last_slash) {
       *last_slash = '\0';
       file = last_slash + 1;
+   } else {
+     path = ""; 
    }
 
    vfsn_t *parent = vtp_path(*cwd, path);
@@ -129,7 +175,6 @@ static char* vtp_cmd_create(int fd, vfsn_t **cwd, char* argv[])
       return ERR_FILEEXISTS;
    }
 
-   printf("wrote %i - %s\n",len,argv[3]);
    vfs_write(node, argv[3], len);
    vfs_close(node);
    return MSG_FILECREATED;
@@ -143,19 +188,19 @@ static char* vtp_cmd_createdir(int fd, vfsn_t **cwd, char* argv[])
    if (last_slash) {
       *last_slash = '\0';
       file = last_slash + 1;
+   } else {
+      path = "";
    }
 
    vfsn_t *parent = vtp_path(*cwd, path);
    vfsn_t *node = vfs_create(parent ? parent : *cwd, file, VFS_DIR);
-   if (node) {
-      write(fd, MSG_DIRCREATED, strlen(MSG_DIRCREATED));
-   } else {
+   vfs_close(parent);
+   if (!node) {
       return ERR_FILEEXISTS;
    }
 
-   vfs_close(parent);
    vfs_close(node);
-   return NULL;
+   return MSG_DIRCREATED;
 }
 
 static char* vtp_cmd_delete(int fd, vfsn_t **cwd, char* argv[])
@@ -204,7 +249,7 @@ static char* vtp_cmd_read(int fd, vfsn_t **cwd, char* argv[])
 
    int size = vfs_size(file);
    char content[size+1];
-   memset(content, 0, size);
+   memset(content, 0, sizeof(content));
    vfs_read(file, content, size);
 
    char format[] = "FILECONTENT %s %i\n%s\n";
@@ -298,6 +343,7 @@ static struct vtp_cmd cmds[] = {
    { "read", 1, vtp_cmd_read },
    { "cat", 1, vtp_cmd_read },
    { "update", 3, vtp_cmd_update },
+   { "changedir", 1, vtp_cmd_cd },
    { "cd", 1, vtp_cmd_cd },
    { "pwd", 0, vtp_cmd_pwd },
    { }
@@ -317,7 +363,7 @@ void vtp_handle(int fd, vfsn_t *cwd)
    char buf[READ_BUFFER_SIZE];
 
    // send welcome
-   dprintf(fd, "%s\n%s", MSG_WELCOME, MSG_LINE_START);
+   vtp_write(fd, "%s\n%s", MSG_WELCOME, MSG_LINE_START);
 
    // main protocol loop
    while (1) {
@@ -333,33 +379,38 @@ void vtp_handle(int fd, vfsn_t *cwd)
       // parse command arguments
       int argc;
       char* argv[MAX_ARGS];
+      memset(argv, 0, sizeof(argv));
       vtp_args(buf, &argc, argv);
+      if (!argv[0]) {
+         vtp_write(fd, MSG_LINE_START);
+         continue;
+      }
 
       // get command from name
       struct vtp_cmd *cmd = vtp_get_cmd(argv[0], len-2);
 
       // check if command was found
       if (!cmd) {
-         vtp_write(fd, ERR_NOSUCHCMD);
-         vtp_write(fd, MSG_LINE_START);
+         vtp_write(fd, "%s\n%s", ERR_NOSUCHCMD, MSG_LINE_START);
          continue;
       }
 
       // read additionl fourth argument
       if (argv[2] && argc == 3 && cmd->args == 3) {
          int content_size = atoi(argv[2]);
-         argv[3] = malloc(content_size+1);
-         memset(argv[3], 0, content_size+1);
-         if (vtp_read(fd, argv[3], content_size) < 0) {
-            break;
+         if (content_size > 0) {
+            argv[3] = malloc(content_size+1);
+            memset(argv[3], 0, content_size+1);
+            if (vtp_read(fd, argv[3], content_size) < 0) {
+               break;
+            }
          }
          argc++;
       }
 
       // check number of arguments
       if (cmd->args + 1 > argc) {
-         vtp_write(fd, ERR_INVALIDCMD);
-         vtp_write(fd, MSG_LINE_START);
+         vtp_write(fd, "%s\n%s", ERR_INVALIDCMD, MSG_LINE_START);
          continue;
       }
     
@@ -371,11 +422,11 @@ void vtp_handle(int fd, vfsn_t *cwd)
 
       // print msg
       if (msg) {
-         vtp_write(fd, msg);
+         vtp_write(fd, "%s\n%s", msg, MSG_LINE_START);
+      } else {
+         // write line start
+         vtp_write(fd, MSG_LINE_START);
       }
-
-      // write line start
-      vtp_write(fd, MSG_LINE_START);
    }
 
    // cleanup

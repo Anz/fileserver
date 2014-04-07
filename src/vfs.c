@@ -36,12 +36,13 @@ static void vfs_flag_set(vfsn_t *node, char flag)
 
 static int vfs_attach(vfsn_t *parent, vfsn_t *child)
 {
+   if (!child)
+      return 1;
+
    if (!parent) {
       child->root = child;
       return 0;
    }
-   if (!child)
-      return 1;
 
    int retval = 0;
    VFS_SAFE_WRITE(parent,
