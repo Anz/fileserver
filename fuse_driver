@@ -11,12 +11,37 @@ import threading
 
 fuse.fuse_python_api = (0, 2)
 
+class VFSocket():
+   def __init__(self):
+      self.lock = threading.Lock()
+      self.lock.acquire()
+      self.sock = socket.socket()
+      self.sock.connect((socket.gethostname(), 8000))
+      self.read()
+      self.lock.release()
+
+   def read(self):
+      result = ""
+      while not ">" in result:
+         result += self.sock.recv(4096)
+      return result.replace(">", "").strip()
+ 
+   def execute(self, cmd):
+      self.lock.acquire()
+      self.sock.send(cmd)
+      print 'send: ', cmd
+      result = self.sread()
+      print 'recv: ', result
+      self.lock.release()
+      return result
+
 class VFS(fuse.Fuse):
    def __init__(self, *args, **kw):
       fuse.Fuse.__init__(self, *args, **kw)
-      self.sconnect()
+      #self.sconnect()
+      self.sock = VSFSocket()
       print 'finished'
-
+"""
    def sconnect(self):
       self.sock_lock = threading.Lock()
       self.sock_lock.acquire()
@@ -40,18 +65,25 @@ class VFS(fuse.Fuse):
       print 'recv: ', result
       self.sock_lock.release()
       return result
+"""
 
+   def sexecute(self, cmd):
+      return self.sock.execute(cmd)
 
    def getattr(self, path):
-      if self.sexecute('ls ' + path).startswith('NOSUCHFILE'):
+      node = self.sexecute('type ' + path)
+      if node.startswith('NOSUCHFILE'):
          return - errno.ENOENT
 
       st = fuse.Stat()
-      st.st_mode = stat.S_IFDIR | 0755
-      st.st_nlink = 2
-      st.st_atime = int(time.time())
-      st.st_mtime = st.st_atime
-      st.st_ctime = st.st_atime
+      if node.startswith('file'):
+         st.st_mode = stat.S_IFREG | 0666
+         st.st_nlink = 1
+         st.st_size = long(self.sexecute('cat ' + path).split()[2])
+      else:
+         st.st_mode = stat.S_IFDIR | 0755
+         st.st_nlink = 2
+         st.st_size = 4096
       return st
 
    def readdir(self, path, flags):
@@ -68,13 +100,24 @@ class VFS(fuse.Fuse):
       return 0
 
    def open(self, path, flags):
-      print 'open: ', path, flags
-      return 0
+      if self.sexecute('type ' + path).startswith('file'):
+         return 0
+      return - errno.ENOENT
 
    def release(self, path, flags):
-      print 'open: ', path, flags
       return 0
       
+   def read(self, path, size, offset):
+      content = self.sexecute('cat ' + path)
+      try:
+         offset += content.index('\n') + 1
+      except:
+         pass
+      return content[offset:]
+
+   def write(self, path, buf, offset):
+      self.sexecute('update path ' + str(len(buf)) + '\n' + buf);
+      return len(buf)
 
 if __name__ == '__main__':
    fs = VFS()

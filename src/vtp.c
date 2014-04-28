@@ -342,6 +342,23 @@ static char* vtp_cmd_pwd(int fd, vfsn_t **cwd, char* argv[])
    return NULL;
 }
 
+static char* vtp_cmd_type(int fd, vfsn_t **cwd, char* argv[])
+{
+   vfsn_t *file = vtp_path(*cwd, argv[1]);
+   if (!file) {
+      return ERR_NOSUCHFILE;
+   }
+
+   if (vfs_is_file(file)) {
+      vtp_write(fd, "file\n");
+   } else {
+      vtp_write(fd, "directory\n");
+   }
+
+   vfs_close(file);
+   return NULL;
+}
+
 static char* vtp_cmd_exit(int fd, vfsn_t **cwd, char* argv[])
 {
    close(fd);
@@ -363,6 +380,7 @@ static struct vtp_cmd cmds[] = {
    { "changedir", 1, vtp_cmd_cd },
    { "cd", 1, vtp_cmd_cd },
    { "pwd", 0, vtp_cmd_pwd },
+   { "type", 0, vtp_cmd_type },
    { }
 };
 
