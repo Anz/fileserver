@@ -14,58 +14,44 @@ fuse.fuse_python_api = (0, 2)
 class VFSocket():
    def __init__(self):
       self.lock = threading.Lock()
-      self.lock.acquire()
-      self.sock = socket.socket()
-      self.sock.connect((socket.gethostname(), 8000))
-      self.read()
-      self.lock.release()
+      self.socks = {}
 
-   def read(self):
+   def read(self, sock):
       result = ""
       while not ">" in result:
-         result += self.sock.recv(4096)
+         result += sock.recv(4096)
       return result.replace(">", "").strip()
  
    def execute(self, cmd):
+      key = threading.current_thread().name
+
+      # get socket
+      sock = None
       self.lock.acquire()
-      self.sock.send(cmd)
-      print 'send: ', cmd
-      result = self.sread()
-      print 'recv: ', result
+      if key in self.socks:
+         sock = self.socks[key]
       self.lock.release()
+
+      # new connections
+      if sock is None:
+         print 'started thread: ' + key
+         sock = socket.socket()
+         sock.connect((socket.gethostname(), 8000))
+         self.read(sock)
+         self.lock.acquire()
+         self.socks[key] = sock
+         self.lock.release()
+
+      sock.send(cmd)
+      result = self.read(sock)
+      print 'send: ' + cmd + '\nrecv: ', result
       return result
 
 class VFS(fuse.Fuse):
    def __init__(self, *args, **kw):
       fuse.Fuse.__init__(self, *args, **kw)
-      #self.sconnect()
-      self.sock = VSFSocket()
+      self.sock = VFSocket()
       print 'finished'
-"""
-   def sconnect(self):
-      self.sock_lock = threading.Lock()
-      self.sock_lock.acquire()
-      self.sock = socket.socket()
-      self.sock.connect((socket.gethostname(), 8000))
-      self.sread()
-      self.sock_lock.release()
-
-   def sread(self):
-      result = ""
-      while not ">" in result:
-         result += self.sock.recv(4096)
-      return result.replace(">", "").strip()
- 
-
-   def sexecute(self, cmd):
-      self.sock_lock.acquire()
-      self.sock.send(cmd)
-      print 'send: ', cmd
-      result = self.sread()
-      print 'recv: ', result
-      self.sock_lock.release()
-      return result
-"""
 
    def sexecute(self, cmd):
       return self.sock.execute(cmd)
