@@ -177,6 +177,25 @@ void vfs_delete(vfsn_t *node)
    vfs_detach(node);
 }
 
+
+void vfs_move(vfsn_t *node, vfsn_t *newparent, char* name)
+{
+   if (!node || !newparent)
+      return;
+   
+   // deattach node
+   vfs_detach(node);
+
+   // change name
+   VFS_SAFE_WRITE(node,
+      free(node->name);
+      node->name = strdup(name);
+   );
+
+   // attach
+   vfs_attach(newparent, node);
+}
+
 size_t vfs_read(vfsn_t *node, void *data, size_t size) {
    size_t read = 0;
    VFS_SAFE_READ(node,

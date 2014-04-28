@@ -11,10 +11,62 @@ import threading
 
 fuse.fuse_python_api = (0, 2)
 
+def current_time():
+   return int(time.time())
+
+class Node():
+   def __init__(self, nodetype, name, size, content, subnodes):
+      self.nodetype = nodetype
+      self.name = name
+      self.size = size
+      self.content = content
+      self.subnodes = subnodes
+      self.time = current_time()
+
+   def valid(self):
+      return self.nodetype >= 0
+
+   def invalid(self):
+      return self.nodetype < 0
+
+class Cache():
+   def __init__(self):
+      self.nodes = {}
+      self.lock = threading.Lock()
+
+   def get(self, path):
+      current = current_time()
+
+      node = None
+      self.lock.acquire()
+      if path in self.nodes:
+         node = self.nodes[path]
+         #if current - node.time > 2:
+         #   del self.nodes[path]
+         #   node = None
+      self.lock.release()
+      return node
+
+   def add(self, path, node):
+      self.lock.acquire()
+      self.nodes[path] = node
+      self.lock.release()
+
+   def remove(self, path, maxage):
+      self.lock.acquire()
+      if path in self.nodes:
+         node = self.nodes[path]
+         if current_time() - node.time >= maxage:
+            del self.nodes[path]
+      self.lock.release()
+   
+
 class VFSocket():
    def __init__(self):
       self.lock = threading.Lock()
-      self.socks = {}
+      self.sock = socket.socket()
+      self.sock.connect((socket.gethostname(), 8000))
+      self.read(self.sock)
 
    def read(self, sock):
       result = ""
@@ -23,27 +75,10 @@ class VFSocket():
       return result.replace(">", "").strip()
  
    def execute(self, cmd):
-      key = threading.current_thread().name
-
-      # get socket
-      sock = None
       self.lock.acquire()
-      if key in self.socks:
-         sock = self.socks[key]
+      self.sock.send(cmd)
+      result = self.read(self.sock)
       self.lock.release()
-
-      # new connections
-      if sock is None:
-         print 'started thread: ' + key
-         sock = socket.socket()
-         sock.connect((socket.gethostname(), 8000))
-         self.read(sock)
-         self.lock.acquire()
-         self.socks[key] = sock
-         self.lock.release()
-
-      sock.send(cmd)
-      result = self.read(sock)
       print 'send: ' + cmd + '\nrecv: ', result
       return result
 
@@ -51,42 +86,72 @@ class VFS(fuse.Fuse):
    def __init__(self, *args, **kw):
       fuse.Fuse.__init__(self, *args, **kw)
       self.sock = VFSocket()
+      self.cache = Cache()
       print 'finished'
+
+   def getnode(self, path):
+      node = self.cache.get(path)
+      if node is not None:
+         return node
+
+      node = Node(-1, path, 0, "", [])
+      nodetype = self.sexecute('type ' + path)
+      if nodetype.startswith('file'):
+         content = self.sexecute('cat ' + path)
+         size = len(content)
+         try:
+            offset = content.index("\n") + 1
+            content = content[offset:]
+            size = len(content)
+         except:
+            pass
+         node = Node(nodetype, path, size, content, [])
+      elif nodetype.startswith('directory'):
+         subnodes = self.sexecute('ls ' + path).splitlines()
+         node = Node(nodetype, path, 4096, '', subnodes)
+      self.cache.add(path, node)
+      return node
 
    def sexecute(self, cmd):
       return self.sock.execute(cmd)
 
    def getattr(self, path):
-      node = self.sexecute('type ' + path)
-      if node.startswith('NOSUCHFILE'):
+      node = self.getnode(path)
+      if node.invalid():
          return - errno.ENOENT
 
       st = fuse.Stat()
-      if node.startswith('file'):
+      st.st_size = node.size
+      if node.nodetype.startswith('file'):
          st.st_mode = stat.S_IFREG | 0666
          st.st_nlink = 1
-         st.st_size = long(self.sexecute('cat ' + path).split()[2])
       else:
          st.st_mode = stat.S_IFDIR | 0755
          st.st_nlink = 2
-         st.st_size = 4096
       return st
 
    def readdir(self, path, flags):
-      files = self.sexecute('ls ' + path).splitlines()
-      for e in files:
-         yield fuse.Direntry(e)
+      #subnodes = self.sexecute('ls ' + path).splitlines()
+      self.cache.remove(path, 1)
+      node = self.getnode(path)
+      if node.valid():
+         for e in node.subnodes:
+            yield fuse.Direntry(e)
 
    def mkdir(self, path, mode):
       self.sexecute('mkdir ' + path) 
+      self.cache.remove(path, 0)
       return 0
 
    def mknod(self, path, mode, dev):
       self.sexecute('create ' + path + ' 0') 
+      self.cache.remove(path, 0)
       return 0
 
    def open(self, path, flags):
-      if self.sexecute('type ' + path).startswith('file'):
+      self.cache.remove(path, 5)
+      node = self.getnode(path)
+      if node.valid() and node.nodetype.startswith('file'):
          return 0
       return - errno.ENOENT
 
@@ -94,16 +159,43 @@ class VFS(fuse.Fuse):
       return 0
       
    def read(self, path, size, offset):
-      content = self.sexecute('cat ' + path)
-      try:
-         offset += content.index('\n') + 1
-      except:
-         pass
-      return content[offset:]
+      self.cache.remove(path, 2)
+      node = self.getnode(path)
+      if node.invalid():
+         return ''
+      return node.content
 
    def write(self, path, buf, offset):
-      self.sexecute('update path ' + str(len(buf)) + '\n' + buf);
+      self.sexecute('update ' + path + ' ' + str(len(str(buf))) + '\r\n' + str(buf));
+      self.cache.remove(path, 0)
       return len(buf)
+
+   def rename(self, pathfrom, pathto):
+      self.sexecute('mv ' + pathfrom + ' ' + pathto)
+      self.cache.remove(pathfrom, 0)
+      self.cache.remove(pathto, 0)
+
+   def truncate(self, path, size):
+      node = self.getnode(path)
+      node.content.ljust(size)[:size]
+      self.write(path, node.content, 0)
+      self.cache.remove(path, 0)
+      return 0
+
+   def unlink(self, path):
+      self.sexecute('rm ' + path)
+      self.cache.remove(path, 0)
+
+   def rmdir(self, path):
+      self.sexecute('rm ' + path)
+      self.cache.remove(path, 0)
+
+   def utime(self, path, mode):
+      return 0
+
+   def fsync(self, path, isfsyncfile):
+      self.cache.remove(path, 0)
+      return 0
 
 if __name__ == '__main__':
    fs = VFS()

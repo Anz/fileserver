@@ -25,6 +25,7 @@
 #define MSG_DELETED "DELETED File/direcotry deleted"
 #define MSG_UPDATED "UPDATED File updated"
 #define MSG_DIRCHANGED "DIRCHANGED Directory changed"
+#define MSG_MOVED "MOVED File/directory moved"
 #define ERR_NOSUCHFILE "NOSUCHFILE No such file"
 #define ERR_NOSUCHDIR "NOSUCHDIR No such directory"
 #define ERR_NOSUCHCMD "NOSUCHCMD No such command"
@@ -43,6 +44,19 @@ struct vtp_cmd {
 ///////////////////////////////////////////////////////////////////////////////
 // LOCAL FUNCTIONS
 ///////////////////////////////////////////////////////////////////////////////
+static char* vtp_split_path(char **path)
+{
+   char* slash = strrchr(*path, '/');
+   if (slash) {
+      *slash = '\0';
+      return slash + 1;
+   }
+
+   char *file = *path;
+   *path = NULL;
+   return file;
+}
+
 static void vtp_pathpart(vfsn_t **node, char* path)
 {
    if (strcmp(".", path) == 0) {
@@ -218,6 +232,28 @@ static char* vtp_cmd_createdir(int fd, vfsn_t **cwd, char* argv[])
    return MSG_DIRCREATED;
 }
 
+static char* vtp_cmd_move(int fd, vfsn_t **cwd, char* argv[])
+{
+   char *oldpath = argv[1];
+   vfsn_t *oldnode = vtp_path(*cwd, oldpath);
+   if (!oldnode)
+      return ERR_NOSUCHFILE;
+
+   char *newpath = argv[2];
+   char *newfile = vtp_split_path(&newpath);
+   vfsn_t *newparent = vtp_path(*cwd, newpath);
+   if (!newparent) {
+      vfs_close(oldnode);
+      return ERR_NOSUCHFILE;
+   }
+
+   // move
+   vfs_move(oldnode, newparent, newfile);
+   vfs_close(oldnode);
+   vfs_close(newparent);
+   return MSG_MOVED;
+}
+
 static char* vtp_cmd_delete(int fd, vfsn_t **cwd, char* argv[])
 {
    vfsn_t *file = vtp_path(*cwd, argv[1]);
@@ -371,6 +407,7 @@ static struct vtp_cmd cmds[] = {
    { "create", 3, vtp_cmd_create },
    { "createdir", 1, vtp_cmd_createdir },
    { "mkdir", 1, vtp_cmd_createdir },
+   { "mv", 2, vtp_cmd_move },
    { "delete", 1, vtp_cmd_delete },
    { "rm", 1, vtp_cmd_delete },
    { "exit", 0, vtp_cmd_exit },

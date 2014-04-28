@@ -41,6 +41,11 @@ vfsn_t* vfs_create(vfsn_t *parent, char *name, char flags);
 void vfs_delete(vfsn_t *node);
 
 /*
+ * Moves node to a new parent with an different name.
+ */
+void vfs_move(vfsn_t *node, vfsn_t *newparent, char* name);
+
+/*
  * Reads number of bytes specified by size or less from node into data. Returns
  * number of byte read.
  */
