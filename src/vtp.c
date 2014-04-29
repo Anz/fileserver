@@ -179,7 +179,7 @@ static int vtp_write(int fd, char *fmt, ...)
    va_end(ap);
 
    // send msg
-   return send(fd, buffer, totallen, MSG_NOSIGNAL|MSG_DONTWAIT);
+   return send(fd, buffer, strlen(buffer), MSG_NOSIGNAL|MSG_DONTWAIT);
 }
 
 static char* vtp_cmd_create(int fd, vfsn_t **cwd, char* argv[])
@@ -273,15 +273,26 @@ static char* vtp_cmd_list(int fd, vfsn_t **cwd, char* argv[])
    if (!it)
       return ERR_NOSUCHFILE;
 
+   // count files
+   int count = 0;
    vfs_child(&it);
-   while (it) {
+   vfsn_t *tmp = vfs_open(it);
+   while (tmp) {
+      count++;
+      vfs_next(&tmp);
+   }
+
+   // print
+   vtp_write(fd, "ACK %i\n", count);
+   while (it && count > 0) {
       int name_size = vfs_name_size(it);
       char name[name_size+2];
       memset(name, 0, sizeof(name));
       name[name_size] = '\n';
       vfs_name(it, name, name_size);
-      write(fd, name, strlen(name));
+      vtp_write(fd, "%s", name);
       vfs_next(&it);
+      count--;
    }
    return NULL;
 }

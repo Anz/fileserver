@@ -41,9 +41,9 @@ class Cache():
       self.lock.acquire()
       if path in self.nodes:
          node = self.nodes[path]
-         #if current - node.time > 2:
-         #   del self.nodes[path]
-         #   node = None
+         if current - node.time > 10:
+            del self.nodes[path]
+            node = None
       self.lock.release()
       return node
 
@@ -76,11 +76,19 @@ class VFSocket():
  
    def execute(self, cmd):
       self.lock.acquire()
+      print 'send: ' + cmd
       self.sock.send(cmd)
       result = self.read(self.sock)
+      print 'recv: ', result
       self.lock.release()
-      print 'send: ' + cmd + '\nrecv: ', result
       return result
+
+   def update(self, cmd):
+      self.lock.acquire()
+      self.sock.send(cmd)
+      self.lock.release()
+      print 'send: ' + cmd
+
 
 class VFS(fuse.Fuse):
    def __init__(self, *args, **kw):
@@ -107,7 +115,8 @@ class VFS(fuse.Fuse):
             pass
          node = Node(nodetype, path, size, content, [])
       elif nodetype.startswith('directory'):
-         subnodes = self.sexecute('ls ' + path).splitlines()
+         subnodes = self.sexecute('ls ' + path).strip()
+         subnodes = subnodes.splitlines()[1:]
          node = Node(nodetype, path, 4096, '', subnodes)
       self.cache.add(path, node)
       return node
@@ -166,11 +175,14 @@ class VFS(fuse.Fuse):
       return node.content
 
    def write(self, path, buf, offset):
-      self.sexecute('update ' + path + ' ' + str(len(str(buf))) + '\r\n' + str(buf));
+      #self.sexecute('update ' + path + ' ' + str(len(str(buf))) + '\r\n' + str(buf));
+      self.sock.update('update ' + path + ' ' + str(len(str(buf))) + '\n');
+      self.sexecute(str(buf));
       self.cache.remove(path, 0)
       return len(buf)
 
    def rename(self, pathfrom, pathto):
+      self.sexecute('rm ' + pathto)
       self.sexecute('mv ' + pathfrom + ' ' + pathto)
       self.cache.remove(pathfrom, 0)
       self.cache.remove(pathto, 0)
