@@ -3,6 +3,7 @@
 * License: http://www.gnu.org/licenses/gpl.html GPL version 2 or higher
 */
 #include "vtp.h"
+#include "log.h"
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -184,6 +185,7 @@ static int vtp_write(int fd, char *fmt, ...)
 
 static char* vtp_cmd_create(int fd, vfsn_t **cwd, char* argv[])
 {
+   log_info("create file: %s", argv[1]);
    int len = atoi(argv[2]);
 
    char* path = argv[1];
@@ -211,6 +213,7 @@ static char* vtp_cmd_create(int fd, vfsn_t **cwd, char* argv[])
 
 static char* vtp_cmd_createdir(int fd, vfsn_t **cwd, char* argv[])
 {
+   log_info("create directory: %s", argv[1]);
    char* path = argv[1];
    char* file = path;
    char* last_slash = strrchr(argv[1], '/');
@@ -234,6 +237,7 @@ static char* vtp_cmd_createdir(int fd, vfsn_t **cwd, char* argv[])
 
 static char* vtp_cmd_move(int fd, vfsn_t **cwd, char* argv[])
 {
+   log_info("move %s to %s", argv[1], argv[2]);
    char *oldpath = argv[1];
    vfsn_t *oldnode = vtp_path(*cwd, oldpath);
    if (!oldnode)
@@ -256,6 +260,7 @@ static char* vtp_cmd_move(int fd, vfsn_t **cwd, char* argv[])
 
 static char* vtp_cmd_delete(int fd, vfsn_t **cwd, char* argv[])
 {
+   log_info("delete %s", argv[1]);
    vfsn_t *file = vtp_path(*cwd, argv[1]);
    if (!file) {
       return ERR_NOSUCHFILE;
@@ -268,6 +273,8 @@ static char* vtp_cmd_delete(int fd, vfsn_t **cwd, char* argv[])
 
 static char* vtp_cmd_list(int fd, vfsn_t **cwd, char* argv[])
 {
+   log_dbg("list %s", argv[1]);
+   vfsn_t *file = vtp_path(*cwd, argv[1]);
    vfsn_t *it = vtp_path(*cwd, argv[1]);
 
    if (!it)
@@ -299,6 +306,7 @@ static char* vtp_cmd_list(int fd, vfsn_t **cwd, char* argv[])
 
 static char* vtp_cmd_read(int fd, vfsn_t **cwd, char* argv[])
 {
+   log_dbg("read %s", argv[1]);
    vfsn_t *file = vtp_path(*cwd, argv[1]);
    if (!file) {
       return ERR_NOSUCHFILE;
@@ -327,6 +335,8 @@ static char* vtp_cmd_read(int fd, vfsn_t **cwd, char* argv[])
 
 static char* vtp_cmd_update(int fd, vfsn_t **cwd, char* argv[])
 {
+   log_info("write %s", argv[1]);
+   vfsn_t *file = vtp_path(*cwd, argv[1]);
    int len = atoi(argv[2]);
 
    vfsn_t *node = vtp_path(*cwd, argv[1]);
@@ -341,6 +351,8 @@ static char* vtp_cmd_update(int fd, vfsn_t **cwd, char* argv[])
 
 static char* vtp_cmd_cd(int fd, vfsn_t **cwd, char* argv[])
 {
+   log_dbg("change directory %s", argv[1]);
+   vfsn_t *file = vtp_path(*cwd, argv[1]);
    vfsn_t *next = vtp_path(*cwd, argv[1]);
    if (!next || vfs_is_file(next)) {
       vfs_close(next);
@@ -354,6 +366,8 @@ static char* vtp_cmd_cd(int fd, vfsn_t **cwd, char* argv[])
 
 static char* vtp_cmd_pwd(int fd, vfsn_t **cwd, char* argv[])
 {
+   log_dbg("print working direcotry %s", argv[1]);
+   vfsn_t *file = vtp_path(*cwd, argv[1]);
    int size = 500;
    char pwd[size];
    memset(pwd, 0, sizeof(pwd));
@@ -391,6 +405,7 @@ static char* vtp_cmd_pwd(int fd, vfsn_t **cwd, char* argv[])
 
 static char* vtp_cmd_type(int fd, vfsn_t **cwd, char* argv[])
 {
+   log_dbg("type %s", argv[1]);
    vfsn_t *file = vtp_path(*cwd, argv[1]);
    if (!file) {
       return ERR_NOSUCHFILE;
@@ -408,6 +423,8 @@ static char* vtp_cmd_type(int fd, vfsn_t **cwd, char* argv[])
 
 static char* vtp_cmd_exit(int fd, vfsn_t **cwd, char* argv[])
 {
+   log_dbg("exit");
+   vfsn_t *file = vtp_path(*cwd, argv[1]);
    close(fd);
    return NULL;
 }

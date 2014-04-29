@@ -4,6 +4,7 @@
 */
 #include "vts.h"
 #include "vtp.h"
+#include "log.h"
 #include <unistd.h>
 #include <stdlib.h>
 #include <sys/socket.h>
@@ -17,6 +18,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 static void* vts_worker(void* data)
 {
+   log_info("client connceted");
    struct vts_worker *worker = (struct vts_worker*)data;
 
    // handle virtual transfer protocol
@@ -26,6 +28,7 @@ static void* vts_worker(void* data)
    pthread_mutex_unlock(&worker->lock);
 
    // exit worker thread
+   log_info("client disconnceted");
    return NULL;
 }
 
@@ -137,6 +140,7 @@ int vts_start(vts_socket_t* sock)
       // check if empty slot was found
       if (!worker) {
          close(clientfd);
+         log_warn("client can not connect due to all slots are in use");
          continue;
       }
 
