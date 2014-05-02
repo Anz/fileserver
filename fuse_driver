@@ -63,6 +63,7 @@ class Cache():
 
 class VFSocket():
    def __init__(self):
+      self._log = False
       self.lock = threading.Lock()
       self.sock = socket.socket()
       self.sock.connect(('localhost', 8000))
@@ -76,10 +77,12 @@ class VFSocket():
  
    def execute(self, cmd):
       self.lock.acquire()
-      print 'send: ' + cmd
+      if self.log:
+         print 'send: ' + cmd
       self.sock.send(cmd)
       result = self.read(self.sock)
-      print 'recv: ', result
+      if self.log:
+         print 'recv: ', result
       self.lock.release()
       return result
 
@@ -87,15 +90,22 @@ class VFSocket():
       self.lock.acquire()
       self.sock.send(cmd)
       self.lock.release()
-      print 'send: ' + cmd
+      if self.log:
+         print 'send: ' + cmd
 
+   @property
+   def log(self):
+      return self._log
+
+   @log.setter
+   def log(self, flag):
+      self._log = flag
 
 class VFS(fuse.Fuse):
    def __init__(self, *args, **kw):
       fuse.Fuse.__init__(self, *args, **kw)
       self.sock = VFSocket()
       self.cache = Cache()
-      print 'finished'
 
    def getnode(self, path):
       node = self.cache.get(path)
@@ -103,9 +113,9 @@ class VFS(fuse.Fuse):
          return node
 
       node = Node(-1, path, 0, "", [])
-      nodetype = self.sexecute('type ' + path)
+      nodetype = self.sock.execute('type ' + path)
       if nodetype.startswith('file'):
-         content = self.sexecute('cat ' + path)
+         content = self.sock.execute('cat ' + path)
          size = len(content)
          try:
             offset = content.index("\n") + 1
@@ -115,14 +125,11 @@ class VFS(fuse.Fuse):
             pass
          node = Node(nodetype, path, size, content, [])
       elif nodetype.startswith('directory'):
-         subnodes = self.sexecute('ls ' + path).strip()
+         subnodes = self.sock.execute('ls ' + path).strip()
          subnodes = subnodes.splitlines()[1:]
          node = Node(nodetype, path, 4096, '', subnodes)
       self.cache.add(path, node)
       return node
-
-   def sexecute(self, cmd):
-      return self.sock.execute(cmd)
 
    def getattr(self, path):
       node = self.getnode(path)
@@ -140,7 +147,6 @@ class VFS(fuse.Fuse):
       return st
 
    def readdir(self, path, flags):
-      #subnodes = self.sexecute('ls ' + path).splitlines()
       self.cache.remove(path, 1)
       node = self.getnode(path)
       if node.valid():
@@ -148,12 +154,12 @@ class VFS(fuse.Fuse):
             yield fuse.Direntry(e)
 
    def mkdir(self, path, mode):
-      self.sexecute('mkdir ' + path) 
+      self.sock.execute('mkdir ' + path) 
       self.cache.remove(path, 0)
       return 0
 
    def mknod(self, path, mode, dev):
-      self.sexecute('create ' + path + ' 0') 
+      self.sock.execute('create ' + path + ' 0') 
       self.cache.remove(path, 0)
       return 0
 
@@ -175,15 +181,14 @@ class VFS(fuse.Fuse):
       return node.content
 
    def write(self, path, buf, offset):
-      #self.sexecute('update ' + path + ' ' + str(len(str(buf))) + '\r\n' + str(buf));
       self.sock.update('update ' + path + ' ' + str(len(str(buf))) + '\n');
-      self.sexecute(str(buf));
+      self.sock.execute(str(buf));
       self.cache.remove(path, 0)
       return len(buf)
 
    def rename(self, pathfrom, pathto):
-      self.sexecute('rm ' + pathto)
-      self.sexecute('mv ' + pathfrom + ' ' + pathto)
+      self.sock.execute('rm ' + pathto)
+      self.sock.execute('mv ' + pathfrom + ' ' + pathto)
       self.cache.remove(pathfrom, 0)
       self.cache.remove(pathto, 0)
 
@@ -195,11 +200,11 @@ class VFS(fuse.Fuse):
       return 0
 
    def unlink(self, path):
-      self.sexecute('rm ' + path)
+      self.sock.execute('rm ' + path)
       self.cache.remove(path, 0)
 
    def rmdir(self, path):
-      self.sexecute('rm ' + path)
+      self.sock.execute('rm ' + path)
       self.cache.remove(path, 0)
 
    def utime(self, path, mode):
@@ -209,8 +214,18 @@ class VFS(fuse.Fuse):
       self.cache.remove(path, 0)
       return 0
 
+   @property
+   def log(self):
+      return None
+
+   @log.setter
+   def log(self, arg):
+      self.sock.log = (arg == 'true')
+
+
 if __name__ == '__main__':
    fs = VFS()
-   fs.parse(errex=1)
+   fs.parser.add_option(mountopt='log', metavar='LOG_LEVEL', default=fs.log, help='enables/disables log')
+   fs.parse(values=fs, errex=1)
    fs.main()
 

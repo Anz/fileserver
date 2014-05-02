@@ -3,7 +3,7 @@
 # set settings
 PORT=8000
 MAX_CLIENTS=50
-LOG_LEVEL=info
+LOG_LEVEL=warn
 
 # start server
 echo "Starting server on localhost:$PORT and max. clients of $MAX_CLIENTS"
