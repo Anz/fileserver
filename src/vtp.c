@@ -274,7 +274,6 @@ static char* vtp_cmd_delete(int fd, vfsn_t **cwd, char* argv[])
 static char* vtp_cmd_list(int fd, vfsn_t **cwd, char* argv[])
 {
    log_dbg("list %s", argv[1]);
-   vfsn_t *file = vtp_path(*cwd, argv[1]);
    vfsn_t *it = vtp_path(*cwd, argv[1]);
 
    if (!it)

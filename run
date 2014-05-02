@@ -3,10 +3,11 @@
 # set settings
 PORT=8000
 MAX_CLIENTS=50
+LOG_LEVEL=info
 
 # start server
 echo "Starting server on localhost:$PORT and max. clients of $MAX_CLIENTS"
-./fileserver $PORT $MAX_CLIENTS
+./fileserver -p $PORT -c $MAX_CLIENTS -l $LOG_LEVEL
 
 # exists
 echo "Server stopped"

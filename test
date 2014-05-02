@@ -56,7 +56,7 @@ def read(sock):
 def client(cmds):
    # connect to server
    sock = socket.socket();
-   sock.connect((socket.gethostname(), port));
+   sock.connect(('localhost', port));
    #sock.setblocking(0)
 
    # execute commands

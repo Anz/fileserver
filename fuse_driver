@@ -65,7 +65,7 @@ class VFSocket():
    def __init__(self):
       self.lock = threading.Lock()
       self.sock = socket.socket()
-      self.sock.connect((socket.gethostname(), 8000))
+      self.sock.connect(('localhost', 8000))
       self.read(self.sock)
 
    def read(self, sock):

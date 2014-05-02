@@ -14,7 +14,7 @@ static vts_socket_t socket;
 
 static void print_usage(void)
 {
-   puts("usage: fileserver <port> [maxclients]");
+   puts("usage: fileserver -p port [-c maxclients] [-l trace|debug|info|warn|error]");
 }
 
 static void signal_handler(int signal)
@@ -24,20 +24,31 @@ static void signal_handler(int signal)
 
 int main(int argc, char* argv[])
 {
-   int port, maxclients = 50;
+   int port = -1, maxclients = 50;
 
    // setup logger
    log_set(STDOUT_FILENO);
+
+   int c;
+   while((c = getopt(argc, argv, "p:c:l:")) != -1) {
+      switch(c) {
+         case 'p': port = atoi(optarg); break;
+         case 'c': maxclients = atoi(optarg); break;
+         case 'l':
+            if (strcmp("trace", optarg) == 0) log_level_set(LOG_TRACE);
+            else if (strcmp("debug", optarg) == 0) log_level_set(LOG_DBG);
+            else if (strcmp("info", optarg) == 0) log_level_set(LOG_INFO);
+            else if (strcmp("warn", optarg) == 0) log_level_set(LOG_WARN);
+            else if (strcmp("error", optarg) == 0) log_level_set(LOG_ERR);
+            break;
+      }
+   }
    
    // parse args
-   if (argc < 2) {
+   if (port < 0) {
       print_usage();
       return 1;
    }
-   port = atoi(argv[1]);
-
-   if (argc > 2)
-      maxclients = atoi(argv[2]);
 
    // init socket
    if (vts_init(&socket, port, maxclients)) {

@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
 #include <pthread.h>
 #include <fcntl.h>
 
@@ -69,7 +70,7 @@ int vts_init(vts_socket_t *sock, int port, int max_clients)
    // setup socket address
    struct sockaddr_in serv_addr = {
       .sin_family = AF_INET,
-      .sin_addr.s_addr = INADDR_ANY,
+      .sin_addr.s_addr = inet_addr("127.0.0.1"),
       .sin_port = htons(port)
    };
 
@@ -165,6 +166,7 @@ void vts_stop(vts_socket_t* sock)
       return;
 
    // close all sockets
+   log_info("shutdown server");
    close(sock->sockfd);
    for (int i = 0; i < sock->max_clients; i++) {
       close(sock->workers[i].fd);

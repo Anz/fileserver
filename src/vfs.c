@@ -132,7 +132,7 @@ vfsn_t* vfs_open(vfsn_t *node)
    if (!node)
       return NULL;
 
-   VFS_SAFE_READ(node, log_dbg("Opening node '%s'", node->name));
+   VFS_SAFE_READ(node, log_trace("Opening node '%s'", node->name));
    pthread_rwlock_rdlock(&node->openlk);
    return node;
 }
@@ -231,7 +231,7 @@ void vfs_close(vfsn_t *node)
    if (!node)
       return;
 
-   VFS_SAFE_READ(node, log_dbg("Closing node '%s'", node->name));
+   VFS_SAFE_READ(node, log_trace("Closing node '%s'", node->name));
    int deleted = vfs_flag_checked(node, VFS_DEL);
    pthread_rwlock_unlock(&node->openlk);
 
