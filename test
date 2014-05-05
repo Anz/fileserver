@@ -25,10 +25,10 @@ workers = [
       "pwd"
       "cd alphabet",
       "pwd"
-      "mkdir a",
-      "mkdir b",
-      "mkdir c",
-      "mkdir d",
+      "mkdir /alphabet/a",
+      "mkdir /alphabet/b",
+      "mkdir /alphabet/c",
+      "mkdir /alphabet/d",
       "exit",
    ],
 
@@ -41,9 +41,21 @@ workers = [
       "ab",
       "update test/names 10",
       "black\njack\n",
-      #"rm alphabet/c",
+      "rm alphabet/c",
       "exit",
    ],
+ 
+   # worker 4
+   [
+      "mkdir /some",
+      "mkdir /some/path",
+      "mkdir /some/path/to",
+      "mkdir /some/path/to/nowhere",
+      "mkdir /some/path/to/nowhere2",
+      "mkdir /some/path/to/nowhere3",
+      "mv /some/path/to/nowhere3 /some/path/to/here",
+      "exit",
+  ],
 ]
 
 
@@ -57,14 +69,12 @@ def client(cmds):
    # connect to server
    sock = socket.socket();
    sock.connect(('localhost', port));
-   #sock.setblocking(0)
 
    # execute commands
    for cmd in cmds:
-      #sys.stdout.write(read(sock))
-      read(sock)
+      sys.stdout.write(read(sock))
       sock.send(cmd);
-      #print cmd
+      print cmd
 
 
    # close connection

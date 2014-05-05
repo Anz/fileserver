@@ -18,7 +18,6 @@
 // DEFINES / MACROS
 ///////////////////////////////////////////////////////////////////////////////
 #define READ_BUFFER_SIZE 512
-//#define MAX_ARGS 5
 
 #define MSG_WELCOME "hello client and welcome to multithreading fileserver"
 #define MSG_LINE_START "> "
@@ -331,7 +330,6 @@ static char* vtp_cmd_read(int fd, vfsn_t **cwd, char* argv[])
 static char* vtp_cmd_update(int fd, vfsn_t **cwd, char* argv[])
 {
    log_info("write %s", argv[1]);
-   vfsn_t *file = vtp_path(*cwd, argv[1]);
    int len = atoi(argv[2]);
 
    char data[len+1];
@@ -423,7 +421,6 @@ static char* vtp_cmd_type(int fd, vfsn_t **cwd, char* argv[])
 static char* vtp_cmd_exit(int fd, vfsn_t **cwd, char* argv[])
 {
    log_dbg("exit");
-   vfsn_t *file = vtp_path(*cwd, argv[1]);
    close(fd);
    return NULL;
 }
@@ -463,7 +460,6 @@ static struct vtp_cmd* vtp_get_cmd(char *name, size_t len)
 void vtp_handle(int fd, vfsn_t *cwd)
 {
    char buf[READ_BUFFER_SIZE];
-   char *data = NULL;
 
    // send welcome
    vtp_write(fd, "%s\n%s", MSG_WELCOME, MSG_LINE_START);
@@ -484,6 +480,7 @@ void vtp_handle(int fd, vfsn_t *cwd)
       if (wordexp(buf, &cmdline, 0) != 0) {
          log_err("cannot parse '%s'", buf);
          vtp_write(fd, "%s\n%s", ERR_INVALIDCMD, MSG_LINE_START);
+         wordfree(&cmdline);
          continue;
       }
 
@@ -515,10 +512,6 @@ void vtp_handle(int fd, vfsn_t *cwd)
     
       // execute command
       char *msg = cmd->func(fd, &cwd, argv);
-      if (data) {
-         free(data);
-         data = NULL;
-      }
 
       // print msg
       if (msg) {
@@ -531,9 +524,5 @@ void vtp_handle(int fd, vfsn_t *cwd)
    }
 
    // cleanup
-   if (data) {
-      free(data);
-      data = NULL;
-   }
    vfs_close(cwd);
 }
