@@ -64,9 +64,10 @@ class Cache():
 class VFSocket():
    def __init__(self):
       self._log = False
+      self._port = 8000
       self.lock = threading.Lock()
       self.sock = socket.socket()
-      self.sock.connect(('localhost', 8000))
+      self.sock.connect(('localhost', self.port))
       self.read(self.sock)
 
    def read(self, sock):
@@ -94,6 +95,14 @@ class VFSocket():
          print 'send: ' + cmd
 
    @property
+   def port(self):
+      return self._port
+
+   @port.setter
+   def port(self, port):
+      self._port = port
+
+   @property
    def log(self):
       return self._log
 
@@ -107,15 +116,18 @@ class VFS(fuse.Fuse):
       self.sock = VFSocket()
       self.cache = Cache()
 
+   def escape(self, path):
+      return path.replace(" ", "\\ ")
+
    def getnode(self, path):
       node = self.cache.get(path)
       if node is not None:
          return node
 
       node = Node(-1, path, 0, "", [])
-      nodetype = self.sock.execute('type ' + path)
+      nodetype = self.sock.execute('type ' + self.escape(path))
       if nodetype.startswith('file'):
-         content = self.sock.execute('cat ' + path)
+         content = self.sock.execute('cat ' + self.escape(path))
          size = len(content)
          try:
             offset = content.index("\n") + 1
@@ -125,7 +137,7 @@ class VFS(fuse.Fuse):
             pass
          node = Node(nodetype, path, size, content, [])
       elif nodetype.startswith('directory'):
-         subnodes = self.sock.execute('ls ' + path).strip()
+         subnodes = self.sock.execute('ls ' + self.escape(path)).strip()
          subnodes = subnodes.splitlines()[1:]
          node = Node(nodetype, path, 4096, '', subnodes)
       self.cache.add(path, node)
@@ -154,12 +166,12 @@ class VFS(fuse.Fuse):
             yield fuse.Direntry(e)
 
    def mkdir(self, path, mode):
-      self.sock.execute('mkdir ' + path) 
+      self.sock.execute('mkdir ' + self.escape(path)) 
       self.cache.remove(path, 0)
       return 0
 
    def mknod(self, path, mode, dev):
-      self.sock.execute('create ' + path + ' 0') 
+      self.sock.execute('create ' + self.escape(path) + ' 0') 
       self.cache.remove(path, 0)
       return 0
 
@@ -181,14 +193,14 @@ class VFS(fuse.Fuse):
       return node.content
 
    def write(self, path, buf, offset):
-      self.sock.update('update ' + path + ' ' + str(len(str(buf))) + '\n');
+      self.sock.update('update ' + self.escape(path) + ' ' + str(len(str(buf))) + '\n');
       self.sock.execute(str(buf));
       self.cache.remove(path, 0)
       return len(buf)
 
    def rename(self, pathfrom, pathto):
-      self.sock.execute('rm ' + pathto)
-      self.sock.execute('mv ' + pathfrom + ' ' + pathto)
+      self.sock.execute('rm ' + self.escape(pathto))
+      self.sock.execute('mv ' + self.escape(pathfrom) + ' ' + self.escape(pathto))
       self.cache.remove(pathfrom, 0)
       self.cache.remove(pathto, 0)
 
@@ -200,11 +212,11 @@ class VFS(fuse.Fuse):
       return 0
 
    def unlink(self, path):
-      self.sock.execute('rm ' + path)
+      self.sock.execute('rm ' + self.escape(path))
       self.cache.remove(path, 0)
 
    def rmdir(self, path):
-      self.sock.execute('rm ' + path)
+      self.sock.execute('rm ' + self.escape(path))
       self.cache.remove(path, 0)
 
    def utime(self, path, mode):
@@ -213,6 +225,14 @@ class VFS(fuse.Fuse):
    def fsync(self, path, isfsyncfile):
       self.cache.remove(path, 0)
       return 0
+
+   @property
+   def port(self):
+      return None
+
+   @port.setter
+   def port(self, port):
+      self.sock.port = int(port)
 
    @property
    def log(self):
@@ -225,6 +245,7 @@ class VFS(fuse.Fuse):
 
 if __name__ == '__main__':
    fs = VFS()
+   fs.parser.add_option(mountopt='port', metavar='PORT', default=fs.port, help='defines server port')
    fs.parser.add_option(mountopt='log', metavar='LOG_LEVEL', default=fs.log, help='enables/disables log')
    fs.parse(values=fs, errex=1)
    fs.main()

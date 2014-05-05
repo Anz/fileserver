@@ -12,12 +12,13 @@
 #include <pthread.h>
 #include <fcntl.h>
 #include <stdarg.h>
+#include <wordexp.h>
 
 ///////////////////////////////////////////////////////////////////////////////
 // DEFINES / MACROS
 ///////////////////////////////////////////////////////////////////////////////
 #define READ_BUFFER_SIZE 512
-#define MAX_ARGS 5
+//#define MAX_ARGS 5
 
 #define MSG_WELCOME "hello client and welcome to multithreading fileserver"
 #define MSG_LINE_START "> "
@@ -102,15 +103,6 @@ static vfsn_t* vtp_path(vfsn_t *cwd, char* path)
    return node;
 }
 
-static void vtp_args(char* cmd, int *argc, char* argv[])
-{
-      memset(argv, 0, MAX_ARGS);
-      argv[0] = strtok(cmd, " \r\n");
-      for (*argc = 0; (*argc)+1 < MAX_ARGS && argv[*argc]; (*argc)++) {
-         argv[(*argc)+1] = strtok(NULL, " \r\n");
-      }
-}
-
 static int vtp_read_packet(int fd, char *buf, size_t size)
 {
    int len = 0;
@@ -188,6 +180,10 @@ static char* vtp_cmd_create(int fd, vfsn_t **cwd, char* argv[])
    log_info("create file: %s", argv[1]);
    int len = atoi(argv[2]);
 
+   char data[len+1];
+   memset(data, 0, sizeof(data));
+   vtp_read(fd, data, len);
+
    char* path = argv[1];
    char* file = path;
    char* last_slash = strrchr(path, '/');
@@ -206,7 +202,7 @@ static char* vtp_cmd_create(int fd, vfsn_t **cwd, char* argv[])
       return ERR_FILEEXISTS;
    }
 
-   vfs_write(node, argv[3], len);
+   vfs_write(node, data, len);
    vfs_close(node);
    return MSG_FILECREATED;
 }
@@ -338,12 +334,16 @@ static char* vtp_cmd_update(int fd, vfsn_t **cwd, char* argv[])
    vfsn_t *file = vtp_path(*cwd, argv[1]);
    int len = atoi(argv[2]);
 
+   char data[len+1];
+   memset(data, 0, sizeof(data));
+   vtp_read(fd, data, len);
+
    vfsn_t *node = vtp_path(*cwd, argv[1]);
    if (!node) {
       return ERR_NOSUCHFILE;
    }
    
-   vfs_write(node, argv[3], len);
+   vfs_write(node, data, len);
    vfs_close(node);
    return MSG_UPDATED;
 }
@@ -431,7 +431,7 @@ static char* vtp_cmd_exit(int fd, vfsn_t **cwd, char* argv[])
 static struct vtp_cmd cmds[] = {
    { "ls", 0, vtp_cmd_list },
    { "list", 0, vtp_cmd_list },
-   { "create", 3, vtp_cmd_create },
+   { "create", 2, vtp_cmd_create },
    { "createdir", 1, vtp_cmd_createdir },
    { "mkdir", 1, vtp_cmd_createdir },
    { "mv", 2, vtp_cmd_move },
@@ -440,7 +440,7 @@ static struct vtp_cmd cmds[] = {
    { "exit", 0, vtp_cmd_exit },
    { "read", 1, vtp_cmd_read },
    { "cat", 1, vtp_cmd_read },
-   { "update", 3, vtp_cmd_update },
+   { "update", 2, vtp_cmd_update },
    { "changedir", 1, vtp_cmd_cd },
    { "cd", 1, vtp_cmd_cd },
    { "pwd", 0, vtp_cmd_pwd },
@@ -474,18 +474,25 @@ void vtp_handle(int fd, vfsn_t *cwd)
       memset(buf, 0, READ_BUFFER_SIZE);
       
       // read command
-      int len = vtp_read_packet(fd, buf, READ_BUFFER_SIZE-1);
+      int len = vtp_read_packet(fd, buf, READ_BUFFER_SIZE);
       if (len == -1) {
          break;
       }
+      strtok(buf, "\r\n");
 
-      // parse command arguments
-      int argc;
-      char* argv[MAX_ARGS];
-      memset(argv, 0, sizeof(argv));
-      vtp_args(buf, &argc, argv);
-      if (!argv[0]) {
-         vtp_write(fd, MSG_LINE_START);
+      wordexp_t cmdline;
+      if (wordexp(buf, &cmdline, 0) != 0) {
+         log_err("cannot parse '%s'", buf);
+         vtp_write(fd, "%s\n%s", ERR_INVALIDCMD, MSG_LINE_START);
+         continue;
+      }
+
+      int argc = cmdline.we_wordc;
+      char **argv = cmdline.we_wordv;
+
+      if (argc < 1) {
+         vtp_write(fd, "%s\n%s", ERR_INVALIDCMD, MSG_LINE_START);
+         wordfree(&cmdline);
          continue;
       }
 
@@ -495,26 +502,14 @@ void vtp_handle(int fd, vfsn_t *cwd)
       // check if command was found
       if (!cmd) {
          vtp_write(fd, "%s\n%s", ERR_NOSUCHCMD, MSG_LINE_START);
+         wordfree(&cmdline);
          continue;
-      }
-
-      // read additionl fourth argument
-      if (argv[2] && argc == 3 && cmd->args == 3) {
-         int content_size = atoi(argv[2]);
-         if (content_size > 0) {
-            data = malloc(content_size+1);
-            memset(data, 0, content_size+1);
-            if (vtp_read(fd, data, content_size) < 0) {
-               break;
-            }
-         }
-         argv[3] = data;
-         argc++;
       }
 
       // check number of arguments
       if (cmd->args + 1 > argc) {
          vtp_write(fd, "%s\n%s", ERR_INVALIDCMD, MSG_LINE_START);
+         wordfree(&cmdline);
          continue;
       }
     
@@ -532,6 +527,7 @@ void vtp_handle(int fd, vfsn_t *cwd)
          // write line start
          vtp_write(fd, MSG_LINE_START);
       }
+      wordfree(&cmdline);
    }
 
    // cleanup
