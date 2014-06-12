@@ -13,6 +13,7 @@
 #include <fcntl.h>
 #include <stdarg.h>
 #include <wordexp.h>
+#include <ctype.h>
 
 ///////////////////////////////////////////////////////////////////////////////
 // DEFINES / MACROS
@@ -447,6 +448,11 @@ static struct vtp_cmd cmds[] = {
 
 static struct vtp_cmd* vtp_get_cmd(char *name, size_t len)
 {
+   // to lower case
+   for (int i = 0; i < len && name[i]; i++) {
+         name[i] = tolower(name[i]);
+   }
+
    for (struct vtp_cmd *cmd = &cmds[0]; cmd->name; cmd++) {
       if (strncmp(cmd->name, name, len) == 0)
          return cmd;
